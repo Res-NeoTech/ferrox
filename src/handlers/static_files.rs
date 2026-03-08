@@ -1,48 +1,48 @@
-use crate::{http::response::Response, template_manager::render};
-use std::{fs::File, io::Read, path::PathBuf};
+use crate::{http::error::render_error, http::response::Response};
+use mime_guess::{self, mime};
+use std::path::PathBuf;
 
 const SERVING_DIR: &str = "www";
 
-pub fn serve_file(file_path: &String) -> Response {
+pub fn serve_file(file_path: &String) -> Result<Response, std::io::Error> {
     let path = PathBuf::from(SERVING_DIR).join(file_path.trim_start_matches('/'));
-    let base = PathBuf::from(SERVING_DIR).canonicalize().expect("Serving dir must exist");
+    let base = PathBuf::from(SERVING_DIR)
+        .canonicalize()
+        .expect("Serving dir must exist");
 
     let mut canonical = match path.canonicalize() {
         Ok(p) => p,
         Err(_) => {
-            let body = render("404", "Not Found");
-            return Response {
-                status: "404 Not Found".to_string(),
+            let body = render_error("404", "Not Found");
+            return Ok(Response {
+                status: "404 Not Found",
                 body,
-                content_type: "text/html".to_string(),
-            };
+                content_type: mime::TEXT_HTML,
+            });
         }
     };
 
     if !canonical.starts_with(&base) {
-        println!("Illegal path.");
+        let body = render_error("403", "Forbidden");
+
+        return Ok(Response {
+            status: "403 Forbidden",
+            body,
+            content_type: mime::TEXT_HTML,
+        });
     }
 
     if canonical.is_dir() {
         canonical = canonical.join("index.html");
     }
 
-    let display = canonical.display();
+    let body = std::fs::read(&canonical)?;
 
-    let mut file = match File::open(&canonical) {
-        Err(why) => panic!("couldn't open {}: {}", display, why),
-        Ok(file) => file,
-    };
+    let mime = mime_guess::from_path(&canonical).first_or_text_plain();
 
-    let mut s = String::new();
-    match file.read_to_string(&mut s) {
-        Err(why) => panic!("couldn't read {}: {}", display, why),
-        Ok(_) => (),
-    }
-
-    return Response {
-        status: "200 OK".to_string(),
-        body: s,
-        content_type: "text/html".to_string(),
-    };
+    Ok(Response {
+        status: "200 OK",
+        body,
+        content_type: mime,
+    })
 }

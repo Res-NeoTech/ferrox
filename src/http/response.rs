@@ -1,14 +1,20 @@
-use std::io::Write;
+use std::{fs::File, io::Write};
 use mime_guess::Mime;
 
 pub struct Response {
     pub status: &'static str,
     pub content_type: Mime,
-    pub body: Vec<u8>,
+    pub content_length: u64,
+    pub body: Body
+}
+
+pub enum Body {
+    Bytes(Vec<u8>),
+    File(File),
 }
 
 impl Response {
-    pub fn write_to<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    pub fn write_headers<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let headers = format!(
             "HTTP/1.1 {}\r\n\
              Content-Type: {}\r\n\
@@ -18,11 +24,10 @@ impl Response {
              \r\n",
             self.status,
             self.content_type.to_string(),
-            self.body.len()
+            self.content_length
         );
 
         writer.write_all(headers.as_bytes())?;
-        writer.write_all(&self.body)?;
 
         Ok(())
     }

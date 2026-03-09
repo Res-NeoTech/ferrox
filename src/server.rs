@@ -1,14 +1,14 @@
-use std::io::{Read};
-use std::net::{TcpListener, TcpStream, IpAddr};
-use time::{UtcDateTime};
+use std::io::{Read, Write};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::thread;
+use time::UtcDateTime;
 
 use mime_guess::mime;
 
 use crate::handlers::static_files::serve_file;
 use crate::http::error::render_error;
 use crate::http::request::Request;
-use crate::http::response::Response;
+use crate::http::response::{Body, Response};
 
 pub fn serve(addr: &str) {
     let listener: TcpListener = TcpListener::bind(addr).unwrap();
@@ -32,14 +32,40 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let date: UtcDateTime = UtcDateTime::now();
 
     let request: Request = Request::parse(&buffer[..size]);
-    let response: Response = match serve_file(&request.path) {
+    let mut response: Response = match serve_file(&request.path) {
         Ok(r) => r,
-        Err(_) => Response { status: "500 Internal Server Error", content_type: mime::TEXT_HTML, body: render_error("500", "Internal Server Error") }
+        Err(_) => {
+            let body = render_error("500", "Internal Server Error");
+            Response {
+                status: "500 Internal Server Error",
+                content_type: mime::TEXT_HTML,
+                content_length: body.len() as u64,
+                body: Body::Bytes(body),
+            }
+        }
     };
 
-    println!("{} - [{}] \"{} {} {}\" {} {}", &ip.to_string(), &date.to_string(), &request.method, &request.path, &request.version, &response.status, &response.body.len());
+    println!(
+        "{} - [{}] \"{} {} {}\" {} {}",
+        &ip.to_string(),
+        &date.to_string(),
+        &request.method,
+        &request.path,
+        &request.version,
+        &response.status,
+        &response.content_length
+    );
 
-    response.write_to(&mut stream)?;
+    response.write_headers(&mut stream)?;
+
+    match &mut response.body {
+        Body::Bytes(bytes) => {
+            stream.write_all(bytes)?;
+        }
+        Body::File(file) => {
+            std::io::copy(file, &mut stream)?;
+        }
+    }
 
     Ok(())
 }

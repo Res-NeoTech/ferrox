@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
-use std::thread;
+use std::{thread, vec};
 use time::UtcDateTime;
 
 use mime_guess::mime;
@@ -34,6 +34,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let date: UtcDateTime = UtcDateTime::now();
 
     let request: Request = Request::parse(&buffer[..size]);
+
     let mut response: Response = match serve_file(&request.path) {
         Ok(r) => r,
         Err(_) => {
@@ -42,6 +43,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
                 status: "500 Internal Server Error",
                 content_type: mime::TEXT_HTML,
                 content_length: body.len() as u64,
+                headers: vec![],
                 body: Body::Bytes(body),
             }
         }

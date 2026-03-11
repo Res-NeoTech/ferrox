@@ -2,6 +2,7 @@ use crate::http::response::{Body, Response};
 use crate::utils::templates::{render_error, render_indexing};
 use mime_guess::{self, mime};
 use std::{fs::File, path::PathBuf};
+use html_escape::encode_safe;
 
 const SERVING_DIR: &str = "www";
 
@@ -102,13 +103,15 @@ fn index_files(path: PathBuf, display_path: &String) -> Result<Vec<u8>, std::io:
     for entry in dir_entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
 
+        if name.starts_with('.') { continue; }
+
         let href = if entry.file_type()?.is_dir() {
             format!("{}/", name)
         } else {
             name
         };
 
-        html_list.push_str(&format!("<li><a href=\"{href}\">{href}</a></li>"));
+        html_list.push_str(&format!("<li><a href=\"{save_href}\">{save_href}</a></li>", save_href = encode_safe(&href)));
     }
 
     Ok(render_indexing(display_path, &html_list))

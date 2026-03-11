@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+html-escape = "0.2.13"
 mime_guess = "2.0.5"
 time = "0.3.47"

@@ -1,90 +1,49 @@
 use crate::http::response::{Body, Response};
-use crate::utils::templates::{render_error, render_indexing};
-use mime_guess::{self, mime};
-use std::{fs::File, path::PathBuf};
+use crate::utils::templates::{render_indexing};
 use html_escape::encode_safe;
+use mime_guess::{self};
+use std::path::Path;
+use std::{fs::File, path::PathBuf};
 
 const SERVING_DIR: &str = "www";
 
 pub fn serve_file(file_path: &String) -> Result<Response, std::io::Error> {
-    let path = PathBuf::from(SERVING_DIR).join(file_path.trim_start_matches('/'));
-    let base = PathBuf::from(SERVING_DIR)
-        .canonicalize()
-        .expect("Serving dir must exist");
+    let base = Path::new(SERVING_DIR).canonicalize()?;
+    let requested_path = base.join(file_path.trim_start_matches('/'));
 
-    let mut canonical = match path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            let body = render_error("404", "Not Found");
-            return Ok(Response {
-                status: "404 Not Found",
-                content_type: mime::TEXT_HTML,
-                content_length: body.len() as u64,
-                headers: vec![],
-                body: Body::Bytes(body),
-            });
-        }
+    let canonical = match requested_path.canonicalize() {
+        Ok(p) if p.starts_with(&base) => p,
+        Ok(_) => return Ok(Response::error("403", "Forbidden")),
+        Err(_) => return Ok(Response::error("404", "Not Found")),
     };
 
-    if !canonical.starts_with(&base) {
-        let body = render_error("403", "Forbidden");
-
-        return Ok(Response {
-            status: "403 Forbidden",
-            content_type: mime::TEXT_HTML,
-            content_length: body.len() as u64,
-            headers: vec![],
-            body: Body::Bytes(body),
-        });
-    }
-
     if canonical.is_dir() {
-        let index = canonical.join("index.html");
-
-        if !index.exists() {
-            if !file_path.ends_with("/") {
-                return Ok(Response {
-                    status: "301 Moved Permanently",
-                    content_type: mime::TEXT_HTML,
-                    content_length: 0,
-                    headers: vec![("Location".into(), format!("{}/", file_path).into())],
-                    body: Body::Bytes(vec![]),
-                });
-            }
-
-            match index_files(canonical.clone(), file_path) {
-                Ok(body) => {
-                    return Ok(Response {
-                        status: "200 OK",
-                        content_type: mime::TEXT_HTML,
-                        content_length: body.len() as u64,
-                        headers: vec![],
-                        body: Body::Bytes(body),
-                    });
-                }
-                Err(_) => {
-                    let body = render_error("403", "Forbidden");
-
-                    return Ok(Response {
-                        status: "403 Forbidden",
-                        content_type: mime::TEXT_HTML,
-                        content_length: body.len() as u64,
-                        headers: vec![],
-                        body: Body::Bytes(body),
-                    });
-                }
-            }
+        if !file_path.ends_with('/') {
+            return Ok(Response::redirect("301 Moved Permanently", &format!("{}/", file_path)));
         }
 
-        canonical = index;
+        let index_html = canonical.join("index.html");
+        
+        if index_html.exists() {
+            return serve_actual_file(index_html);
+        }
+
+        return match index_files(canonical, file_path) {
+            Ok(body) => Ok(Response::new_html("200 OK", body)),
+            Err(_) => Ok(Response::error("403", "Forbidden")),
+        };
     }
 
-    let file = File::open(&canonical)?;
+    serve_actual_file(canonical)
+}
+
+fn serve_actual_file(path: PathBuf) -> Result<Response, std::io::Error> {
+    let file = File::open(&path)?;
     let metadata = file.metadata()?;
-    let mime = mime_guess::from_path(&canonical).first_or_text_plain();
+    let mime = mime_guess::from_path(&path).first_or_text_plain();
 
     Ok(Response {
-        status: "200 OK",
+        status: "200 OK".to_string(),
         content_type: mime,
         content_length: metadata.len(),
         headers: vec![],

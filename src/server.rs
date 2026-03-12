@@ -1,12 +1,9 @@
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
-use std::{thread, vec};
+use std::{thread};
 use time::UtcDateTime;
 
-use mime_guess::mime;
-
 use crate::handlers::static_files::serve_file;
-use crate::utils::templates::render_error;
 use crate::http::request::Request;
 use crate::http::response::{Body, Response};
 
@@ -37,16 +34,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
 
     let mut response: Response = match serve_file(&request.path) {
         Ok(r) => r,
-        Err(_) => {
-            let body = render_error("500", "Internal Server Error");
-            Response {
-                status: "500 Internal Server Error",
-                content_type: mime::TEXT_HTML,
-                content_length: body.len() as u64,
-                headers: vec![],
-                body: Body::Bytes(body),
-            }
-        }
+        Err(_) => Response::error("500", "Internal Server Error")
     };
 
     println!(

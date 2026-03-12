@@ -1,3 +1,5 @@
+use html_escape::encode_safe;
+
 const ERROR_TEMPLATE: &str = include_str!("../../templates/error.html");
 const INDEXING_TEMPLATE: &str = include_str!("../../templates/indexing.html");
 
@@ -6,5 +8,6 @@ pub fn render_error(code: &str, message: &str) -> Vec<u8> {
 }
 
 pub fn render_indexing(title: &str, list: &str) -> Vec<u8> {
-    INDEXING_TEMPLATE.replace("{{TITLE}}", title).replace("{{LISTING}}", list).into_bytes()
+    let safe_title = encode_safe(title);
+    INDEXING_TEMPLATE.replace("{{TITLE}}", &safe_title).replace("{{LISTING}}", list).into_bytes()
 }

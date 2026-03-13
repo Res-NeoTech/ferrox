@@ -1,12 +1,12 @@
 use std::io::{Read, Write};
-use std::net::{IpAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
-use time::UtcDateTime;
 use threadpool::ThreadPool;
 
 use crate::handlers::static_files::serve_file;
 use crate::http::request::Request;
 use crate::http::response::{Body, Response};
+use crate::utils::logger;
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
 const MAX_WORKERS: usize = 4;
@@ -45,29 +45,12 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         return Ok(());
     }
 
-    let connecting_ip: IpAddr = stream.peer_addr()?.ip();
-    let requested_ip: IpAddr = stream.local_addr()?.ip();
-    let date: UtcDateTime = UtcDateTime::now();
-
     let request: Request = Request::parse(&buffer[..bytes_read]);
 
     let mut response: Response = match serve_file(&request.path) {
         Ok(r) => r,
         Err(_) => Response::error("500", "Internal Server Error")
     };
-
-    println!(
-        "{} - [{}] \"{} {} {}\" {} {} - \"{}\" \"{}\"",
-        &connecting_ip.to_string(),
-        &date.to_string(),
-        &request.method,
-        &request.path,
-        &request.version,
-        &response.status,
-        &response.content_length,
-        &request.headers.get("User-Agent").unwrap(),
-        &requested_ip.to_string()
-    );
 
     response.write_headers(&mut stream)?;
 
@@ -78,6 +61,11 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         Body::File(file) => {
             std::io::copy(file, &mut stream)?;
         }
+    }
+
+    match logger::access(&request, &response, &stream) {
+        Ok(()) => { },
+        Err(_) => eprintln!("Failed to save log. Make sure the correct directory exists and created.")
     }
 
     Ok(())

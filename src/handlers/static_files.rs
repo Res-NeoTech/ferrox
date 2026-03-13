@@ -5,10 +5,8 @@ use mime_guess::{self};
 use std::path::Path;
 use std::{fs::File, path::PathBuf};
 
-const SERVING_DIR: &str = "www";
-
-pub fn serve_file(file_path: &String) -> Result<Response, std::io::Error> {
-    let base = Path::new(SERVING_DIR).canonicalize()?;
+pub fn serve_file(file_path: &String, root_dir: &str) -> Result<Response, std::io::Error> {
+    let base = Path::new(root_dir).canonicalize()?;
     let requested_path = base.join(file_path.trim_start_matches('/'));
 
     let canonical = match requested_path.canonicalize() {

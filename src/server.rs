@@ -3,21 +3,22 @@ use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 use threadpool::ThreadPool;
 
+use crate::config::FerroxConfig;
 use crate::handlers::static_files::serve_file;
 use crate::http::request::Request;
 use crate::http::response::{Body, Response};
 use crate::utils::logger;
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
-const MAX_WORKERS: usize = 4;
 const READ_TIMEOUT_SEC: u64 = 5;
 const WRITE_TIMEOUT_SEC: u64 = 5;
 
-pub fn serve(addr: &str) {
-    let listener = TcpListener::bind(addr).unwrap();
-    let pool = ThreadPool::new(MAX_WORKERS);
+pub fn serve(config: &FerroxConfig) {
+    let addr = format!("{}:{}", config.host, config.port);
+    let listener = TcpListener::bind(&addr).unwrap();
+    let pool = ThreadPool::new(config.max_workers);
 
-    println!("Ferrox running on http://{addr} with {MAX_WORKERS} workers");
+    println!("Ferrox running on http://{} with {} workers", addr, config.max_workers);
 
     for stream in listener.incoming() {
         match stream {
@@ -25,8 +26,9 @@ pub fn serve(addr: &str) {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(READ_TIMEOUT_SEC)));
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(WRITE_TIMEOUT_SEC)));
 
+                let conf = config.clone();
                 pool.execute(move || {
-                    if let Err(e) = handle(stream) {
+                    if let Err(e) = handle(stream, conf) {
                         eprintln!("Connection error: {}", e);
                     }
                 });
@@ -36,7 +38,7 @@ pub fn serve(addr: &str) {
     }
 }
 
-fn handle(mut stream: TcpStream) -> std::io::Result<()> {
+fn handle(mut stream: TcpStream, config: FerroxConfig) -> std::io::Result<()> {
     let mut buffer: [u8; 8192] = [0; MAX_HEADER_SIZE as usize];
 
     let bytes_read = stream.read(&mut buffer)?;
@@ -47,7 +49,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
 
     let request: Request = Request::parse(&buffer[..bytes_read]);
 
-    let mut response: Response = match serve_file(&request.path) {
+    let mut response: Response = match serve_file(&request.path, &config.root_dir) {
         Ok(r) => r,
         Err(_) => Response::error("500", "Internal Server Error")
     };
@@ -63,7 +65,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         }
     }
 
-    match logger::access(&request, &response, &stream) {
+    match logger::access(&request, &response, &stream, &config.log_dir) {
         Ok(()) => { },
         Err(_) => eprintln!("Failed to save log. Make sure the correct directory exists and created.")
     }

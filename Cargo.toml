@@ -8,3 +8,5 @@ html-escape = "0.2.13"
 mime_guess = "2.0.5"
 threadpool = "1.8.1"
 time = "0.3.47"
+serde = { version = "1.0.197", features = ["derive"] }
+toml = "0.8.12"

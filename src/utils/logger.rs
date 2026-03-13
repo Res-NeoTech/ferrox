@@ -6,21 +6,19 @@ use time::UtcDateTime;
 
 use crate::http::{request::{Request}, response::Response};
 
-const LOGGING_DIR: &str = "logs";
-
-fn append_log(append_file: &str, log: String) -> std::io::Result<()> {
+fn append_log(append_file: &str, log: String, log_dir: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
         .create(true)
-        .open(format!("{}/{}", LOGGING_DIR, append_file))?;
+        .open(format!("{}/{}", log_dir, append_file))?;
 
     writeln!(file, "{log}")?;
 
     Ok(())
 }
 
-pub fn access(request: &Request, response: &Response, stream: &TcpStream) -> std::io::Result<()> {
+pub fn access(request: &Request, response: &Response, stream: &TcpStream, log_dir: &str) -> std::io::Result<()> {
     let connecting_ip: IpAddr = stream.peer_addr()?.ip();
     let requested_ip: IpAddr = stream.local_addr()?.ip();
     let date: UtcDateTime = UtcDateTime::now();
@@ -38,7 +36,7 @@ pub fn access(request: &Request, response: &Response, stream: &TcpStream) -> std
         requested_ip.to_string()
     );
 
-    append_log("access.log", log)?;
+    append_log("access.log", log, log_dir)?;
 
     Ok(())
 }

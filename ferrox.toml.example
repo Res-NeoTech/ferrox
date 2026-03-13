@@ -1,0 +1,16 @@
+# Ferrox Server Configuration
+
+# The interface to bind the server to
+host = "0.0.0.0"
+
+# The port to listen on
+port = 8080
+
+# The directory to serve files from
+root_dir = "www"
+
+# The directory to store access logs
+log_dir = "logs"
+
+# The maximum number of worker threads to spawn for incoming connections
+max_workers = 8

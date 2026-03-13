@@ -2,7 +2,9 @@ mod server;
 mod http;
 mod handlers;
 mod utils;
+mod config;
 
 fn main() {
-    server::serve("0.0.0.0:80");
+    let conf = config::FerroxConfig::load();
+    server::serve(&conf);
 }

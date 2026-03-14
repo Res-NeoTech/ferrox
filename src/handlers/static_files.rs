@@ -40,7 +40,7 @@ pub fn serve_file(file_path: &String) -> Result<Response, std::io::Error> {
 fn serve_actual_file(path: PathBuf) -> Result<Response, std::io::Error> {
     let file = File::open(&path)?;
     let metadata = file.metadata()?;
-    let mime = mime_guess::from_path(&path).first_or_text_plain();
+    let mime = mime_guess::from_path(&path).first_or_octet_stream();
 
     Ok(Response {
         status: "200 OK".to_string(),

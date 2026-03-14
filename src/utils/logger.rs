@@ -38,7 +38,21 @@ pub fn access(request: &Request, response: &Response, stream: &TcpStream) -> std
         requested_ip.to_string()
     );
 
-    append_log("access.log", log)?;
+    match append_log("access.log", log) {
+        Ok(()) => { },
+        Err(_) => eprintln!("Something went wrong while persisting the log. Make sure directory {LOGGING_DIR} exists.")
+    };
 
     Ok(())
+}
+
+pub fn error_log(concern: &str, error: String) {
+    let date: UtcDateTime = UtcDateTime::now();
+
+    let log: String = format!("{} [{}]: {}", date.to_string(), concern, error);
+
+    match append_log("error.log", log) {
+        Ok(()) => { },
+        Err(_) => eprintln!("Something went wrong while persisting the log. Make sure directory {LOGGING_DIR} exists.")
+    };
 }

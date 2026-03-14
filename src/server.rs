@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 use threadpool::ThreadPool;
@@ -27,29 +27,63 @@ pub fn serve(addr: &str) {
 
                 pool.execute(move || {
                     if let Err(e) = handle(stream) {
-                        eprintln!("Connection error: {}", e);
+                        logger::error_log("core", format!("Connection error: {}", e));
                     }
                 });
             }
-            Err(e) => eprintln!("Failed to accept connection: {}", e),
+            Err(e) => {
+                logger::error_log("core", format!("Failed to accept connection: {}", e));
+            }
         }
     }
 }
 
-fn handle(mut stream: TcpStream) -> std::io::Result<()> {
-    let mut buffer: [u8; 8192] = [0; MAX_HEADER_SIZE as usize];
+fn handle(mut stream: TcpStream) -> Result<()> {
+    let mut full_data: Vec<u8> = Vec::new();
+    let mut temp_buffer: [u8; 1024] = [0u8; 1024];
 
-    let bytes_read = stream.read(&mut buffer)?;
+    loop {
+        let bytes_read = stream.read(&mut temp_buffer)?;
 
-    if bytes_read == 0 {
-        return Ok(());
+        if bytes_read == 0 {
+            return Ok(());
+        }
+
+        full_data.extend_from_slice(&temp_buffer[..bytes_read]);
+
+        if full_data.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+
+        if full_data.len() > MAX_HEADER_SIZE as usize {
+            return Err(Error::new(
+                ErrorKind::ArgumentListTooLong,
+                "Max header size reached.",
+            ));
+        }
     }
 
-    let request: Request = Request::parse(&buffer[..bytes_read]);
+    let request = match Request::parse(&full_data) {
+        Ok(r) => r,
+        Err(e) => {
+            logger::error_log("parser", format!("Failed to parse http request: {}", e));
+
+            let error_res = Response::error("400", "Bad Request");
+            let _ = error_res.write_headers(&mut stream);
+            if let Body::Bytes(b) = error_res.body {
+                let _ = stream.write_all(&b);
+            }
+
+            return Ok(());
+        }
+    };
 
     let mut response: Response = match serve_file(&request.path) {
         Ok(r) => r,
-        Err(_) => Response::error("500", "Internal Server Error")
+        Err(e) => {
+            logger::error_log("file", format!("Failed to server static file: {}", e));
+            Response::error("500", "Internal Server Error")
+        }
     };
 
     response.write_headers(&mut stream)?;
@@ -63,10 +97,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         }
     }
 
-    match logger::access(&request, &response, &stream) {
-        Ok(()) => { },
-        Err(_) => eprintln!("Failed to save log. Make sure the correct directory exists and created.")
-    }
+    logger::access(&request, &response, &stream)?;
 
     Ok(())
 }

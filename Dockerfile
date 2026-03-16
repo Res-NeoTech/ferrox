@@ -2,8 +2,7 @@
 # Project:     Ferrox
 # Source:      https://github.com/Res-NeoTech/ferrox
 # Description: Ultra-lightweight, natively compiled Alpine image.
-# Details:     Uses a multi-stage build to compile the Rust binary directly 
-#              against musl libc, completely bypassing glibc linker errors.
+# Details:     Uses a multi-stage build to compile the Rust binary.
 # Author:      FauZaPespi
 # ------------------------------------------------------------------------------
 

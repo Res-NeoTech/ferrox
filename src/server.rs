@@ -1,14 +1,20 @@
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind};
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use tokio::net::TcpListener;
 
+use crate::config::Config;
 use crate::handlers::static_files::serve_file;
 use crate::http::request::Request;
 use crate::http::response::{Body, Response};
 use crate::utils::logger;
-use crate::config::Config;
+
+use std::fs::File;
+use std::io::BufReader;
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer};
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
 const CONNECTION_TIMEOUT_SEC: u64 = 10;
@@ -18,9 +24,11 @@ const CONNECTION_TIMEOUT_SEC: u64 = 10;
 /// # Arguments
 ///
 /// * `config` - Shared server configuration used for binding, serving files, and logging.
-pub async fn serve(config: Arc<Config>) {
-    let addr = format!("{}:{}", config.server.addr, config.server.port);
-    let listener = TcpListener::bind(&addr).await.expect(&format!("Ferrox failed to bind on http://{addr}"));
+pub async fn serve_http(config: Arc<Config>) {
+    let addr = format!("{}:{}", config.server.addr, config.server.http_port);
+    let listener = TcpListener::bind(&addr)
+        .await
+        .expect(&format!("Ferrox failed to bind on http://{addr}"));
 
     println!("Ferrox running on http://{addr}");
 
@@ -34,20 +42,197 @@ pub async fn serve(config: Arc<Config>) {
         };
 
         let task_config: Arc<Config> = Arc::clone(&config);
-        let log_config: Arc<Config> = Arc::clone(&config);
+        let peer_ip = stream
+            .peer_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        let local_ip = stream
+            .local_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
 
         tokio::spawn(async move {
             let duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
-            match tokio::time::timeout(duration, handle(stream, task_config)).await {
+            match tokio::time::timeout(
+                duration,
+                handle(stream, task_config.clone(), peer_ip, local_ip),
+            )
+            .await
+            {
                 Ok(Err(e)) => {
-                    logger::error_log(&log_config, "core", format!("Connection error: {}", e)).await;
+                    logger::error_log(&task_config, "core", format!("Connection error: {}", e))
+                        .await;
                 }
                 Err(_) => {
-                    logger::error_log(&log_config, "core", "Connection timed out".to_string()).await;
+                    logger::error_log(&task_config, "core", "Connection timed out".to_string())
+                        .await;
                 }
-                Ok(Ok(())) => {
+                Ok(Ok(())) => {}
+            }
+        });
+    }
+}
+
+pub async fn serve_http_redirect(config: Arc<Config>) {
+    let addr = format!("{}:{}", config.server.addr, config.server.http_port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect(&format!("Ferrox failed to bind on http://{addr}"));
+
+    println!("HTTP Redirector running on http://{}", addr);
+
+    loop {
+        let (mut stream, _) = match listener.accept().await {
+            Ok(res) => res,
+            Err(_) => continue,
+        };
+
+        let task_config = Arc::clone(&config);
+        let peer_ip = stream
+            .peer_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        let local_ip = stream
+            .local_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+
+        tokio::spawn(async move {
+            let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
+
+            let task = async {
+                let mut temp_buffer = [0u8; 1024];
+                let mut full_data = Vec::new();
+                if let Ok(bytes_read) = stream.read(&mut temp_buffer).await {
+                    if bytes_read > 0 {
+                        full_data.extend_from_slice(&temp_buffer[..bytes_read]);
+
+                        if let Ok(request) = Request::parse(&full_data) {
+                            let https_port_str = if task_config.server.https_port == 443 {
+                                "".to_string()
+                            } else {
+                                format!(":{}", task_config.server.https_port)
+                            };
+
+                            let host = request
+                                .headers
+                                .get("Host")
+                                .map(|s| s.as_str())
+                                .unwrap_or("127.0.0.1");
+
+                            let redirect_response = Response::redirect(
+                                "301 Moved Permanently",
+                                &format!("https://{}{}{}", host, https_port_str, request.path),
+                            );
+
+                            match redirect_response
+                                .write_headers(&mut stream, &task_config)
+                                .await
+                            {
+                                Ok(()) => (),
+                                Err(e) => {
+                                    logger::error_log(
+                                        &task_config,
+                                        "core",
+                                        format!("Failed to redirect to https: {}", e),
+                                    )
+                                    .await;
+                                    return;
+                                }
+                            };
+
+                            logger::access(
+                                &task_config,
+                                &request,
+                                &redirect_response,
+                                peer_ip,
+                                local_ip,
+                            )
+                            .await;
+                        }
+                    }
                 }
+            };
+
+            if let Err(_) = tokio::time::timeout(timeout_duration, task).await {
+                logger::error_log(
+                    &task_config,
+                    "core",
+                    "HTTP Redirect connection timed out".to_string(),
+                )
+                .await;
+            }
+        });
+    }
+}
+
+/// Starts the TLS-encrypted TCP server and spawns an async task for each accepted connection.
+///
+/// # Arguments
+///
+/// * `config` - Shared server configuration used for binding, serving files, and logging.
+pub async fn serve_https(config: Arc<Config>) {
+    let addr = format!("{}:{}", config.server.addr, config.server.https_port);
+    let listener = TcpListener::bind(&addr)
+        .await
+        .expect(&format!("Ferrox failed to bind on https://{addr}"));
+
+    let tls_server_config = load_tls_config(&config).expect("Failed to load TLS configuration");
+    let tls_acceptor = TlsAcceptor::from(Arc::new(tls_server_config));
+
+    println!("Ferrox running on https://{addr}");
+
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(res) => res,
+            Err(e) => {
+                logger::error_log(&config, "core", format!("Failed to accept: {}", e)).await;
+                continue;
+            }
+        };
+
+        let task_config: Arc<Config> = Arc::clone(&config);
+        let acceptor: TlsAcceptor = tls_acceptor.clone();
+        let peer_ip = stream
+            .peer_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        let local_ip = stream
+            .local_addr()
+            .map(|a| a.ip())
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+
+        tokio::spawn(async move {
+            let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
+
+            let task = async {
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        if let Err(e) =
+                            handle(tls_stream, task_config.clone(), peer_ip, local_ip).await
+                        {
+                            crate::utils::logger::error_log(
+                                &task_config,
+                                "core",
+                                format!("Connection error: {}", e),
+                            )
+                            .await;
+                        }
+                    }
+                    Err(e) => {
+                        crate::utils::logger::error_log(
+                            &task_config,
+                            "tls",
+                            format!("TLS handshake failed: {}", e),
+                        )
+                        .await;
+                    }
+                }
+            };
+
+            if let Err(_) = tokio::time::timeout(timeout_duration, task).await {
+                logger::error_log(&task_config, "core", "Connection timed out".to_string()).await;
             }
         });
     }
@@ -59,7 +244,15 @@ pub async fn serve(config: Arc<Config>) {
 ///
 /// * `stream` - The TCP stream connected to the client.
 /// * `config` - Shared server configuration used for parsing, file serving, and logging.
-async fn handle(mut stream: TcpStream, config: Arc<Config>) -> Result<()> {
+async fn handle<S>(
+    mut stream: S,
+    config: Arc<Config>,
+    peer_ip: IpAddr,
+    local_ip: IpAddr,
+) -> std::io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let mut full_data: Vec<u8> = Vec::new();
     let mut temp_buffer: [u8; 1024] = [0u8; 1024];
 
@@ -87,7 +280,12 @@ async fn handle(mut stream: TcpStream, config: Arc<Config>) -> Result<()> {
     let request = match Request::parse(&full_data) {
         Ok(r) => r,
         Err(e) => {
-            logger::error_log(&config, "parser", format!("Failed to parse http request: {}", e)).await;
+            logger::error_log(
+                &config,
+                "parser",
+                format!("Failed to parse http request: {}", e),
+            )
+            .await;
 
             let error_res = Response::error("400", "Bad Request");
             let _ = error_res.write_headers(&mut stream, &config).await?;
@@ -99,13 +297,19 @@ async fn handle(mut stream: TcpStream, config: Arc<Config>) -> Result<()> {
         }
     };
 
-    let mut response: Response = match serve_file(&request.path, config.paths.serve_dir.clone()).await {
-        Ok(r) => r,
-        Err(e) => {
-            logger::error_log(&config,"file", format!("Failed to server static file: {}", e)).await;
-            Response::error("500", "Internal Server Error")
-        }
-    };
+    let mut response: Response =
+        match serve_file(&request.path, config.paths.serve_dir.clone()).await {
+            Ok(r) => r,
+            Err(e) => {
+                logger::error_log(
+                    &config,
+                    "file",
+                    format!("Failed to server static file: {}", e),
+                )
+                .await;
+                Response::error("500", "Internal Server Error")
+            }
+        };
 
     response.write_headers(&mut stream, &config).await?;
 
@@ -118,7 +322,33 @@ async fn handle(mut stream: TcpStream, config: Arc<Config>) -> Result<()> {
         }
     }
 
-    logger::access(&config, &request, &response, &stream).await?;
+    logger::access(&config, &request, &response, peer_ip, local_ip).await;
 
     Ok(())
+}
+
+fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
+    // Reading private key
+    let cert_file = File::open(&config.tls.cert_path)?;
+    let mut cert_reader = BufReader::new(cert_file);
+    let certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut cert_reader).collect::<std::result::Result<Vec<_>, _>>()?;
+
+    // Reading public key
+    let key_file = File::open(&config.tls.key_path)?;
+    let mut key_reader = BufReader::new(key_file);
+    let key: PrivateKeyDer<'static> =
+        rustls_pemfile::private_key(&mut key_reader)?.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "No private key found")
+        })?;
+
+    // Assembling tls config
+    let mut server_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+    server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+    Ok(server_config)
 }

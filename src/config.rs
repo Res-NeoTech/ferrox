@@ -4,7 +4,8 @@ use std::{collections::HashMap, fs};
 /// Stores the network address settings used when binding the HTTP server.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ServerConfig {
-    pub port: u16,
+    pub http_port: u16,
+    pub https_port: u16,
     pub addr: String,
 }
 
@@ -15,13 +16,22 @@ pub struct PathsConfig {
     pub log_dir: String
 }
 
+// Defines basic tls config.
+#[derive(Deserialize, Debug, Clone)]
+pub struct TlsConfig {
+    pub enabled: bool,
+    pub cert_path: String,
+    pub key_path: String,
+}
+
 /// Represents the full Ferrox configuration loaded from `ferrox-compose.yml`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
     pub paths: PathsConfig,
-    #[serde(default)] // Если секции нет в файле, создаст пустой HashMap (чтобы сервер не падал)
+    #[serde(default)]
     pub headers: HashMap<String, String>,
+    pub tls: TlsConfig
 }
 
 impl Config {

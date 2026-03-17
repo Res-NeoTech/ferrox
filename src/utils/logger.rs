@@ -1,7 +1,6 @@
 use std::net::IpAddr;
 use tokio::fs::OpenOptions; 
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 
 use crate::config::Config; 
 use crate::http::{request::Request, response::Response};
@@ -38,9 +37,7 @@ async fn append_log(config: &Config, append_file: &str, log: String) -> std::io:
 /// * `request` - The incoming HTTP request.
 /// * `response` - The outgoing HTTP response.
 /// * `stream` - The TCP stream of the connection.
-pub async fn access(config: &Config, request: &Request, response: &Response, stream: &TcpStream) -> std::io::Result<()> {
-    let connecting_ip: IpAddr = stream.peer_addr()?.ip();
-    let requested_ip: IpAddr = stream.local_addr()?.ip();
+pub async fn access(config: &Config, request: &Request, response: &Response, connecting_ip: IpAddr, requested_ip: IpAddr) {
     let date: UtcDateTime = UtcDateTime::now();
 
     let log: String = format!(
@@ -60,8 +57,6 @@ pub async fn access(config: &Config, request: &Request, response: &Response, str
         Ok(()) => { },
         Err(_) => eprintln!("Failed to persist log. Make sure directory {} exists.", config.paths.log_dir)
     };
-
-    Ok(())
 }
 
 /// Logs an error message related to a specific concern.

@@ -1,6 +1,6 @@
 [package]
 name = "ferrox"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]
@@ -10,3 +10,5 @@ time = "0.3.47"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+tokio-rustls = "0.26"
+rustls-pemfile = "2.1"

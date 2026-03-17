@@ -1,7 +1,8 @@
 # Minimal working compose file
 
 server:
-  port: 80
+  http_port: 80
+  https_port: 443
   addr: 0.0.0.0
 
 # Make sure to create these directories before starting Ferrox
@@ -13,3 +14,9 @@ paths:
 headers:
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
+
+# Request certificate using certbot for free or generate one yourself using OpenSSL (faster for testing)
+tls:
+  enabled: true
+  cert_path: certs/cert.pem
+  key_path: certs/key.pem

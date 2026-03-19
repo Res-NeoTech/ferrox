@@ -12,7 +12,7 @@ use tokio::fs::File;
 ///
 /// * `file_path` - The request path extracted from the HTTP request line.
 /// * `serving_dir` - The root directory from which static files are served.
-pub async fn serve_file(file_path: &String, serving_dir: String) -> Result<Response, std::io::Error> {
+pub async fn serve_file(file_path: &String, serving_dir: &String) -> Result<Response, std::io::Error> {
     let base = Path::new(&serving_dir).canonicalize()?;
     let requested_path = base.join(file_path.trim_start_matches('/'));
 

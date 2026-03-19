@@ -16,42 +16,126 @@ impl Request {
     ///
     /// * `buffer` - The raw bytes read from the client connection.
     pub fn parse(buffer: &[u8]) -> Result<Self> {
-        let request: std::borrow::Cow<'_, str> = String::from_utf8_lossy(buffer);
-        let mut lines = request.lines();
+        let header_end = Self::find_headers_end(buffer).ok_or(Error::new(ErrorKind::InvalidData, "No header terminator."))?;
 
-        let first_line = lines
-            .next()
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No first line found."))?;
+        let header_bytes = &buffer[..header_end];
+        let mut lines = header_bytes.split(|&b| b == b'\n');
 
-        let parts: Vec<&str> = first_line.split_whitespace().collect();
+        let first_line = lines.next().ok_or(Error::new(ErrorKind::InvalidData, "Missing request line."))?;
 
-        let method = parts
-            .get(0)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No method found."))?;
-        let path = parts
-            .get(1)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No request path found."))?;
-        let version = parts
-            .get(2)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No protocol version found."))?;
+        let first_line = Self::strip_cr(first_line);
 
-        let mut headers: HashMap<String, String> = HashMap::new();
+        let (method, path, version) = Self::split_request_line(first_line)?;
+
+        let mut headers = HashMap::new();
 
         for line in lines {
+            let line = Self::strip_cr(line);
+
             if line.is_empty() {
                 break;
             }
 
-            if let Some((key, value)) = line.split_once(':') {
-                headers.insert(key.trim().to_string(), value.trim().to_string());
-            }
+            let (key, value) = Self::parse_header(line)?;
+
+            let key = std::str::from_utf8(key)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header key."))?
+                .to_ascii_lowercase();
+
+            let value = std::str::from_utf8(value)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header value."))?
+                .to_string();
+
+            headers.insert(key, value);
         }
 
         Ok(Self {
-            method: method.to_string(),
-            path: path.to_string(),
-            version: version.to_string(),
+            method: std::str::from_utf8(method).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
+            path: std::str::from_utf8(path).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
+            version: std::str::from_utf8(version).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
             headers,
         })
+    }
+
+    /// Finds the byte offset where the HTTP header block terminates.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The raw request buffer to scan for the `\r\n\r\n` terminator.
+    fn find_headers_end(buf: &[u8]) -> Option<usize> {
+        buf.windows(4).position(|w| w == b"\r\n\r\n")
+    }
+
+    /// Splits the HTTP request line into method, path, and version slices.
+    ///
+    /// # Arguments
+    ///
+    /// * `line` - The first line of the HTTP request without the trailing carriage return.
+    fn split_request_line(line: &[u8]) -> Result<(&[u8], &[u8], &[u8])> {
+        let mut parts = line.split(|&b| b == b' ');
+
+        let method = parts
+            .next()
+            .ok_or(Error::new(ErrorKind::InvalidData, "No method."))?;
+        let path = parts
+            .next()
+            .ok_or(Error::new(ErrorKind::InvalidData, "No path."))?;
+        let version = parts
+            .next()
+            .ok_or(Error::new(ErrorKind::InvalidData, "No version."))?;
+
+        if parts.next().is_some() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "Too many parts in request line.",
+            ));
+        }
+
+        Ok((method, path, version))
+    }
+
+    /// Parses a single HTTP header line into trimmed key and value slices.
+    ///
+    /// # Arguments
+    ///
+    /// * `line` - A raw header line in the form `name: value`.
+    fn parse_header(line: &[u8]) -> Result<(&[u8], &[u8])> {
+        let pos = line
+            .iter()
+            .position(|&b| b == b':')
+            .ok_or(Error::new(ErrorKind::InvalidData, "Malformed header."))?;
+
+        let key = &line[..pos];
+        let value = &line[pos + 1..];
+
+        Ok((Self::trim(key), Self::trim(value)))
+    }
+
+    /// Removes leading and trailing ASCII spaces from a byte slice.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The byte slice to trim in place by adjusting its bounds.
+    fn trim(mut s: &[u8]) -> &[u8] {
+        while s.first() == Some(&b' ') {
+            s = &s[1..];
+        }
+        while s.last() == Some(&b' ') {
+            s = &s[..s.len() - 1];
+        }
+        s
+    }
+
+    /// Removes a trailing carriage return from a line when present.
+    ///
+    /// # Arguments
+    ///
+    /// * `line` - The request or header line that may end with `\r`.
+    fn strip_cr(line: &[u8]) -> &[u8] {
+        if line.ends_with(b"\r") {
+            &line[..line.len() - 1]
+        } else {
+            line
+        }
     }
 }

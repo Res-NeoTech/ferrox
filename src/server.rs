@@ -18,6 +18,7 @@ use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer, pki_types::P
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
 const CONNECTION_TIMEOUT_SEC: u64 = 10;
+const UNSPECIFIED_IP: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
 
 /// Starts the TCP server and spawns an async task for each accepted connection.
 ///
@@ -45,18 +46,18 @@ pub async fn serve_http(config: Arc<Config>) {
         let peer_ip = stream
             .peer_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
             let duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
             match tokio::time::timeout(
                 duration,
-                handle(stream, task_config.clone(), peer_ip, local_ip),
+                handle(stream, Arc::clone(&task_config), peer_ip, local_ip),
             )
             .await
             {
@@ -74,6 +75,11 @@ pub async fn serve_http(config: Arc<Config>) {
     }
 }
 
+/// Starts the HTTP listener that redirects incoming requests to the HTTPS endpoint.
+///
+/// # Arguments
+///
+/// * `config` - Shared server configuration used for binding, redirect targets, and logging.
 pub async fn serve_http_redirect(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.http_port);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -92,11 +98,11 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
         let peer_ip = stream
             .peer_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
@@ -197,11 +203,11 @@ pub async fn serve_https(config: Arc<Config>) {
         let peer_ip = stream
             .peer_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
-            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+            .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
@@ -210,7 +216,7 @@ pub async fn serve_https(config: Arc<Config>) {
                 match acceptor.accept(stream).await {
                     Ok(tls_stream) => {
                         if let Err(e) =
-                            handle(tls_stream, task_config.clone(), peer_ip, local_ip).await
+                            handle(tls_stream, Arc::clone(&task_config), peer_ip, local_ip).await
                         {
                             crate::utils::logger::error_log(
                                 &task_config,
@@ -298,7 +304,7 @@ where
     };
 
     let mut response: Response =
-        match serve_file(&request.path, config.paths.serve_dir.clone()).await {
+        match serve_file(&request.path, &config.paths.serve_dir).await {
             Ok(r) => r,
             Err(e) => {
                 logger::error_log(
@@ -327,6 +333,11 @@ where
     Ok(())
 }
 
+/// Loads the TLS certificate chain and private key into a server configuration.
+///
+/// # Arguments
+///
+/// * `config` - The application configuration containing certificate and key file paths.
 fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
     // Reading private key
     let cert_file = File::open(&config.tls.cert_path)?;

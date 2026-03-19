@@ -49,7 +49,7 @@ pub async fn access(config: &Config, request: &Request, response: &Response, con
         request.version,
         response.status,
         response.content_length,
-        request.headers.get("User-Agent").unwrap_or(&"-".to_string()),
+        request.headers.get("user-agent").unwrap_or(&"-".to_string()),
         requested_ip.to_string()
     );
 

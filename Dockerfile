@@ -30,7 +30,7 @@ RUN apk add --no-cache ca-certificates libgcc
 
 WORKDIR /app
 COPY --from=builder /build/target/release/ferrox /app/ferrox
-COPY ferrox-compose.yml /app/ferrox-compose.yml
+COPY ferrox.yml /app/ferrox.yml
 
 # Run it
 ENTRYPOINT ["/app/ferrox"]

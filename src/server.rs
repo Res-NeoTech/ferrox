@@ -2,6 +2,7 @@ use std::io::{Error, ErrorKind};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -43,10 +44,7 @@ pub async fn serve_http(config: Arc<Config>) {
         };
 
         let task_config: Arc<Config> = Arc::clone(&config);
-        let peer_ip = stream
-            .peer_addr()
-            .map(|a| a.ip())
-            .unwrap_or(UNSPECIFIED_IP);
+        let peer_ip = stream.peer_addr().map(|a| a.ip()).unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
@@ -95,10 +93,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
         };
 
         let task_config = Arc::clone(&config);
-        let peer_ip = stream
-            .peer_addr()
-            .map(|a| a.ip())
-            .unwrap_or(UNSPECIFIED_IP);
+        let peer_ip = stream.peer_addr().map(|a| a.ip()).unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
@@ -108,55 +103,60 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
             let task = async {
-                let mut temp_buffer = [0u8; 1024];
-                let mut full_data = Vec::new();
-                if let Ok(bytes_read) = stream.read(&mut temp_buffer).await {
-                    if bytes_read > 0 {
-                        full_data.extend_from_slice(&temp_buffer[..bytes_read]);
-
-                        if let Ok(request) = Request::parse(&full_data) {
-                            let https_port_str = if task_config.server.https_port == 443 {
-                                "".to_string()
-                            } else {
-                                format!(":{}", task_config.server.https_port)
-                            };
-
-                            let host = request
-                                .headers
-                                .get("Host")
-                                .map(|s| s.as_str())
-                                .unwrap_or("127.0.0.1");
-
-                            let redirect_response = Response::redirect(
-                                "301 Moved Permanently",
-                                &format!("https://{}{}{}", host, https_port_str, request.path),
-                            );
-
-                            match redirect_response
-                                .write_headers(&mut stream, &task_config)
-                                .await
-                            {
-                                Ok(()) => (),
-                                Err(e) => {
-                                    logger::error_log(
-                                        &task_config,
-                                        "core",
-                                        format!("Failed to redirect to https: {}", e),
-                                    )
-                                    .await;
-                                    return;
-                                }
-                            };
-
-                            logger::access(
-                                &task_config,
-                                &request,
-                                &redirect_response,
-                                peer_ip,
-                                local_ip,
-                            )
+                let request_head: Vec<u8> = match read_request_head(&mut stream, MAX_HEADER_SIZE)
+                    .await
+                {
+                    Ok(h) => h,
+                    Err(e) => {
+                        logger::error_log(&task_config, "core", format!("Connection error: {}", e))
                             .await;
-                        }
+                        vec![]
+                    }
+                };
+
+                if request_head != vec![] {
+                    if let Ok(request) = Request::parse(&request_head) {
+                        let https_port_str = if task_config.server.https_port == 443 {
+                            "".to_string()
+                        } else {
+                            format!(":{}", task_config.server.https_port)
+                        };
+
+                        let host = request
+                            .headers
+                            .get("Host")
+                            .map(|s| s.as_str())
+                            .unwrap_or("127.0.0.1");
+
+                        let redirect_response = Response::redirect(
+                            "301 Moved Permanently",
+                            &format!("https://{}{}{}", host, https_port_str, request.path),
+                        );
+
+                        match redirect_response
+                            .write_headers(&mut stream, &task_config)
+                            .await
+                        {
+                            Ok(()) => (),
+                            Err(e) => {
+                                logger::error_log(
+                                    &task_config,
+                                    "core",
+                                    format!("Failed to redirect to https: {}", e),
+                                )
+                                .await;
+                                return;
+                            }
+                        };
+
+                        logger::access(
+                            &task_config,
+                            &request,
+                            &redirect_response,
+                            peer_ip,
+                            local_ip,
+                        )
+                        .await;
                     }
                 }
             };
@@ -200,10 +200,7 @@ pub async fn serve_https(config: Arc<Config>) {
 
         let task_config: Arc<Config> = Arc::clone(&config);
         let acceptor: TlsAcceptor = tls_acceptor.clone();
-        let peer_ip = stream
-            .peer_addr()
-            .map(|a| a.ip())
-            .unwrap_or(UNSPECIFIED_IP);
+        let peer_ip = stream.peer_addr().map(|a| a.ip()).unwrap_or(UNSPECIFIED_IP);
         let local_ip = stream
             .local_addr()
             .map(|a| a.ip())
@@ -218,7 +215,7 @@ pub async fn serve_https(config: Arc<Config>) {
                         if let Err(e) =
                             handle(tls_stream, Arc::clone(&task_config), peer_ip, local_ip).await
                         {
-                            crate::utils::logger::error_log(
+                            logger::error_log(
                                 &task_config,
                                 "core",
                                 format!("Connection error: {}", e),
@@ -227,7 +224,7 @@ pub async fn serve_https(config: Arc<Config>) {
                         }
                     }
                     Err(e) => {
-                        crate::utils::logger::error_log(
+                        logger::error_log(
                             &task_config,
                             "tls",
                             format!("TLS handshake failed: {}", e),
@@ -259,31 +256,13 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let mut full_data: Vec<u8> = Vec::new();
-    let mut temp_buffer: [u8; 1024] = [0u8; 1024];
+    let request_head: Vec<u8> = read_request_head(&mut stream, MAX_HEADER_SIZE).await?;
 
-    loop {
-        let bytes_read = stream.read(&mut temp_buffer).await?;
-
-        if bytes_read == 0 {
-            return Ok(());
-        }
-
-        full_data.extend_from_slice(&temp_buffer[..bytes_read]);
-
-        if full_data.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
-        }
-
-        if full_data.len() > MAX_HEADER_SIZE as usize {
-            return Err(Error::new(
-                ErrorKind::ArgumentListTooLong,
-                "Max header size reached.",
-            ));
-        }
+    if request_head == vec![] {
+        return Ok(());
     }
 
-    let request = match Request::parse(&full_data) {
+    let request = match Request::parse(&request_head) {
         Ok(r) => r,
         Err(e) => {
             logger::error_log(
@@ -303,19 +282,18 @@ where
         }
     };
 
-    let mut response: Response =
-        match serve_file(&request.path, &config.paths.serve_dir).await {
-            Ok(r) => r,
-            Err(e) => {
-                logger::error_log(
-                    &config,
-                    "file",
-                    format!("Failed to server static file: {}", e),
-                )
-                .await;
-                Response::error("500", "Internal Server Error")
-            }
-        };
+    let mut response: Response = match serve_file(&request.path, &config.paths.serve_dir).await {
+        Ok(r) => r,
+        Err(e) => {
+            logger::error_log(
+                &config,
+                "file",
+                format!("Failed to server static file: {}", e),
+            )
+            .await;
+            Response::error("500", "Internal Server Error")
+        }
+    };
 
     response.write_headers(&mut stream, &config).await?;
 
@@ -362,4 +340,52 @@ fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
     server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
     Ok(server_config)
+}
+
+/// Reads request head and returns it's vector.
+///
+/// # Arguments
+///
+/// * `stream` - The TCP stream connected to the client.
+/// * `max_header_size` - Max header size authorized.
+async fn read_request_head<S>(stream: &mut S, max_header_size: u64) -> std::io::Result<Vec<u8>>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let mut full_data: Vec<u8> = Vec::with_capacity(1024);
+    let mut temp_buffer: [u8; 1024] = [0u8; 1024];
+    let mut search_start: usize = 0;
+
+    loop {
+        let bytes_read: usize = stream.read(&mut temp_buffer).await?;
+        let check_start: usize = search_start.saturating_sub(3);
+
+        if bytes_read == 0 {
+            if full_data.is_empty() {
+                return Ok(vec![]);
+            } else {
+                return Err(Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "Client disconnected before sending full request headers.",
+                ));
+            }
+        }
+
+        full_data.extend_from_slice(&temp_buffer[..bytes_read]);
+
+        if full_data[check_start..].windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+
+        if full_data.len() > max_header_size as usize {
+            return Err(Error::new(
+                ErrorKind::ArgumentListTooLong,
+                "Max header size reached.",
+            ));
+        }
+
+        search_start = full_data.len();
+    }
+
+    Ok(full_data)
 }

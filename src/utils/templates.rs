@@ -23,3 +23,30 @@ pub fn render_indexing(title: &str, list: &str) -> Vec<u8> {
     let safe_title = encode_safe(title);
     INDEXING_TEMPLATE.replace("{{TITLE}}", &safe_title).replace("{{LISTING}}", list).into_bytes()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{render_error, render_indexing};
+
+    #[test]
+    fn render_error_inserts_status_and_message() {
+        let rendered = String::from_utf8(render_error("404", "Not Found")).expect("valid utf-8");
+
+        assert!(rendered.contains("404"));
+        assert!(rendered.contains("Not Found"));
+    }
+
+    #[test]
+    fn render_indexing_escapes_title_but_keeps_listing_markup() {
+        let rendered = String::from_utf8(render_indexing(
+            r#"<script>alert("x")</script>"#,
+            "<li><a href=\"file.txt\">file.txt</a></li>",
+        ))
+        .expect("valid utf-8");
+
+        assert!(rendered.contains("&lt;script&gt;"), "rendered output: {rendered}");
+        assert!(rendered.contains("alert"), "rendered output: {rendered}");
+        assert!(rendered.contains("script"), "rendered output: {rendered}");
+        assert!(rendered.contains("<li><a href=\"file.txt\">file.txt</a></li>"));
+    }
+}

@@ -139,3 +139,56 @@ impl Request {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Request;
+    use std::io::ErrorKind;
+
+    #[test]
+    fn parses_request_line_and_normalizes_headers() {
+        let raw = b"GET /docs HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Ferrox Test\r\nX-Value:  spaced value  \r\n\r\n";
+
+        let request = Request::parse(raw).expect("request should parse");
+
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/docs");
+        assert_eq!(request.version, "HTTP/1.1");
+        assert_eq!(request.headers.get("host").map(String::as_str), Some("example.com"));
+        assert_eq!(
+            request.headers.get("user-agent").map(String::as_str),
+            Some("Ferrox Test")
+        );
+        assert_eq!(
+            request.headers.get("x-value").map(String::as_str),
+            Some("spaced value")
+        );
+    }
+
+    #[test]
+    fn rejects_request_without_header_terminator() {
+        let err = Request::parse(b"GET / HTTP/1.1\r\nHost: example.com")
+            .err()
+            .expect("request without terminator must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_too_many_parts() {
+        let err = Request::parse(b"GET / HTTP/1.1 EXTRA\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("malformed request line must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_malformed_header() {
+        let err = Request::parse(b"GET / HTTP/1.1\r\nHost example.com\r\n\r\n")
+            .err()
+            .expect("malformed header must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+}

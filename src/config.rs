@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize};
 use std::{collections::HashMap, fs};
 
 /// Stores the network address settings used when binding the HTTP server.
@@ -7,6 +7,14 @@ pub struct ServerConfig {
     pub http_port: u16,
     pub https_port: u16,
     pub addr: String,
+    pub router: RouterPreset
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum RouterPreset {
+    Static,
+    Spa
 }
 
 /// Defines the filesystem paths used for static files and log output.

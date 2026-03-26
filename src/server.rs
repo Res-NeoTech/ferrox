@@ -5,6 +5,7 @@ use std::time::Duration;
 use std::vec;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use urlencoding::decode;
 
 use crate::config::Config;
 use crate::handlers::static_files::serve_file;
@@ -282,7 +283,23 @@ where
         }
     };
 
-    let mut response: Response = match serve_file(&request.path, &config.paths.serve_dir).await {
+    let decoded_path = match decode(&request.path) {
+        Ok(p) => p.into_owned(),
+        Err(_) => {
+            let res = Response::error("400", "Bad Request");
+
+            res.write_headers(&mut stream, &config).await?;
+            return Ok(());
+        }
+    };
+
+    let mut response: Response = match serve_file(
+        &decoded_path,
+        &config.paths.serve_dir,
+        &config.server.router,
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => {
             logger::error_log(
@@ -373,7 +390,10 @@ where
 
         full_data.extend_from_slice(&temp_buffer[..bytes_read]);
 
-        if full_data[check_start..].windows(4).any(|window| window == b"\r\n\r\n") {
+        if full_data[check_start..]
+            .windows(4)
+            .any(|window| window == b"\r\n\r\n")
+        {
             break;
         }
 

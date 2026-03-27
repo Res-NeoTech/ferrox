@@ -286,9 +286,12 @@ where
     let decoded_path = match decode(&request.path) {
         Ok(p) => p.into_owned(),
         Err(_) => {
-            let res = Response::error("400", "Bad Request");
-
-            res.write_headers(&mut stream, &config).await?;
+            let error_res = Response::error("400", "Bad Request");
+            let _ = error_res.write_headers(&mut stream, &config).await?;
+            if let Body::Bytes(b) = error_res.body {
+                let _ = stream.write_all(&b).await;
+            }
+            
             return Ok(());
         }
     };

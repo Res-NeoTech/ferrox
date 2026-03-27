@@ -123,15 +123,17 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                             format!(":{}", task_config.server.https_port)
                         };
 
+                        let local_ip_str = local_ip.to_string();
                         let host = request
                             .headers
                             .get("Host")
                             .map(|s| s.as_str())
-                            .unwrap_or("127.0.0.1");
+                            .unwrap_or(&local_ip_str);
+                        let clean_host = host.split(':').next().unwrap_or(host);
 
                         let redirect_response = Response::redirect(
                             "301 Moved Permanently",
-                            &format!("https://{}{}{}", host, https_port_str, request.path),
+                            &format!("https://{}{}{}", clean_host, https_port_str, request.path),
                         );
 
                         match redirect_response
@@ -291,7 +293,7 @@ where
             if let Body::Bytes(b) = error_res.body {
                 let _ = stream.write_all(&b).await;
             }
-            
+
             return Ok(());
         }
     };

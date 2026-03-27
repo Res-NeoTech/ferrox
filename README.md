@@ -1,103 +1,74 @@
 # Ferrox
 
-Ferrox is a fast and lightweight web server written in Rust from first principles. The goal of the project is to explore how an HTTP server works internally without hiding the fundamentals behind a large framework, while still achieving high performance.
+Ferrox is a fast, secure, and ultra-lightweight web server written in Rust from first principles. Designed to explore the internal workings of an HTTP server, Ferrox strips away bloated frameworks to deliver high performance while exposing the fundamentals of asynchronous network programming. 
 
-It is currently focused on one job: serving static files from a custom directory with a custom HTTP stack implemented inside the project.
+While built as an educational exploration, Ferrox is highly capable of serving static files and Single Page Applications (SPAs) efficiently with a custom HTTP stack.
 
 ## Why this project exists
 
-Ferrox is a learning-oriented server project built to better understand:
+Ferrox is built to provide a deep understanding of web server mechanics, specifically focusing on:
 
-- Asynchronous TCP-based request handling in Rust (using Tokio)
-- Manual HTTP request parsing and response writing
-- Static file serving and MIME type detection
-- Safe path resolution for files on disk to prevent path traversal
-- Clean fallback error pages
+- Asynchronous TCP-based request handling in Rust using the Tokio runtime.
+- Manual HTTP request parsing and response generation without relying on large frameworks.
+- Static file serving, robust MIME type detection, and flexible SPA routing.
+- Safe path resolution for files on disk to prevent directory traversal attacks.
+- Clean, customizable fallback error pages.
 
-This codebase is designed to be compact, readable, and an excellent foundation for experimentation and iteration.
+## Key Features
 
-## Current features
-
-- Serves files from the `www/` directory
-- Resolves directories to `index.html` or generates directory indexes
-- Detects content types with `mime_guess`
-- Returns custom HTML error pages for `400`, `403`, `404`, and `500` cases
-- Rejects directory traversal outside the serving root using canonicalization
-- **High Performance:** Handles thousands of concurrent connections using Tokio's lightweight asynchronous tasks (Event-Driven architecture).
-- **Robust Parsing:** Safely parses HTTP requests using dynamic buffers, protecting against malformed data without panicking.
-- **Security:** Includes connection timeouts to mitigate Slowloris attacks.
+- **Flexible Routing:** Serves standard static files or operates as a router for Single Page Applications (SPAs).
+- **HTTPS & TLS Support:** Built-in TLS support powered by `tokio-rustls`, allowing secure connections via custom or Certbot-generated certificates.
+- **High Performance:** Handles thousands of concurrent connections using Tokio's lightweight asynchronous tasks in an event-driven architecture.
+- **Robust Parsing & Security:** Safely parses HTTP requests using dynamic buffers to protect against malformed data. Includes connection timeouts to mitigate Slowloris attacks.
+- **Configurable & Extensible:** Easily managed via a `ferrox.yml` configuration file, allowing customization of ports, served directories, logging, and default HTTP security headers (e.g., `X-Content-Type-Options: nosniff`).
+- **Docker Ready:** Includes a multi-stage Alpine Dockerfile for ultra-lightweight, natively compiled deployments.
 
 ## How it works
 
 At a high level, Ferrox:
 
-1. Binds an asynchronous TCP listener
-2. Loads and applies yml config
-3. Accepts incoming connections and spawns a lightweight Tokio task for each
-4. Safely reads the raw request into a dynamic buffer until the `\r\n\r\n` boundary
-5. Parses the request line into method, path, and HTTP version without allocations where possible
-6. Maps the requested path into the `www/` directory safely
-7. Serves the file (using async I/O) or returns an error page
-8. Writes a full HTTP response back to the client
+1. Binds an asynchronous TCP listener to the configured HTTP and HTTPS ports.
+2. Loads and applies server configuration from `ferrox.yml`.
+3. Accepts incoming connections and spawns a lightweight Tokio task for each request.
+4. Safely reads the raw request into a dynamic buffer until the `\r\n\r\n` boundary.
+5. Parses the request line (method, path, HTTP version) efficiently, minimizing memory allocations.
+6. Maps the requested path into the target directory (e.g., `www/`), detecting content types via `mime_guess`.
+7. Serves the file via async I/O, acts as an SPA router, or returns an appropriate error page (`400`, `403`, `404`, `500`).
+8. Writes a full HTTP response back to the client.
 
-The code is intentionally split into small modules for server logic, request/response types, error rendering, and static file handling.
+## Configuration
 
-## Project structure
+Ferrox is configured using a simple `ferrox.yml` file. By default, it supports defining:
+- HTTP and HTTPS listening ports and addresses.
+- Router mode (`static` or `spa`).
+- Target directories for serving (`www`) and logging (`logs`).
+- Default injected security headers.
+- TLS certificate and key paths.
 
-```text
-src/
-  main.rs              Entry point
-  config.rs            Configuration structure and parsing
-  server.rs            Async TCP listener and request handling
-  handlers/
-    static_files.rs    Static file resolution and async delivery
-  http/
-    request.rs         Minimal, panic-free HTTP request parsing
-    response.rs        HTTP response formatting and writing
-  utils/
-    logger.rs          Request and error logging
-    templates.rs       Basic HTML template rendering
-templates/
-  error.html           Shared HTML template for error pages
-www/
-  index.html           Default site content
-```
+## Deployment
 
-## Running locally
-
+### Running Locally with Cargo
 ```bash
-cargo run
+cargo run --release
 ```
+Then open `http://127.0.0.1/` (or your configured port) in your browser.
 
-Then open:
+## Current Limitations
 
-```text
-http://127.0.0.1/
-```
+While Ferrox is evolving, it maintains a minimal footprint. Current limitations include:
+- Request bodies are not fully parsed yet (optimized primarily for `GET`/`HEAD` requests).
+- No keep-alive support (`Connection: close` is hardcoded for now).
+- It is an experimental project and should be evaluated thoroughly before being used as a hardened production server facing the public internet.
 
-## Current limitations
+## Future Direction
 
-Ferrox is intentionally minimal right now. A few practical limitations of the current version:
-
-- Body is not parsed yet (no use for now, only GET/HEAD are practically supported)
-- There is no routing layer beyond static file serving
-- There is no keep-alive support (`Connection: close` is hardcoded)
-- It should be treated as an experimental project, not a hardened production server (yet)
-
-## Future direction
-
-Natural next steps for the project could include:
-
-- TLS Support (HTTPS) via `tokio-rustls`
-- Zero-copy request parsing for even lower memory footprint
-- Keep-alive support for persistent connections
-- Tests and benchmarks
-- Become better than at least **CERN httpd**
-
-## Important note
-
-Technically, if your only goal is to serve static files somewhere other than the **World Wide Web**, you could already use **Ferrox** for that. It is fast, secure against basic traversal, and very lightweight.
+Natural next steps for the project include:
+- Zero-copy request parsing for an even lower memory footprint.
+- Keep-alive support for persistent connections.
+- Implementing comprehensive tests and benchmarks.
+- Reverse proxy feature.
+- Host configuration.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for more details.

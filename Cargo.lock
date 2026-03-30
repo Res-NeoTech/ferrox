@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "ferrox"
-version = "0.5.1"
+version = "0.5.3"
 dependencies = [
  "html-escape",
  "mime_guess",

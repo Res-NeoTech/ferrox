@@ -52,23 +52,8 @@ pub async fn serve_http(config: Arc<Config>) {
             .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
-            let duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
-
-            match tokio::time::timeout(
-                duration,
-                handle(stream, Arc::clone(&task_config), peer_ip, local_ip),
-            )
-            .await
-            {
-                Ok(Err(e)) => {
-                    logger::error_log(&task_config, "core", format!("Connection error: {}", e))
-                        .await;
-                }
-                Err(_) => {
-                    logger::error_log(&task_config, "core", "Connection timed out".to_string())
-                        .await;
-                }
-                Ok(Ok(())) => {}
+            if let Err(e) = handle(stream, Arc::clone(&task_config), peer_ip, local_ip).await {
+                logger::error_log(&task_config, "core", format!("Connection error: {}", e)).await;
             }
         });
     }
@@ -103,74 +88,75 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
         tokio::spawn(async move {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
-            let task = async {
-                let request_head: Vec<u8> = match read_request_head(&mut stream, MAX_HEADER_SIZE)
-                    .await
-                {
-                    Ok(h) => h,
-                    Err(e) => {
-                        logger::error_log(&task_config, "core", format!("Connection error: {}", e))
-                            .await;
-                        vec![]
-                    }
-                };
-
-                if request_head != vec![] {
-                    if let Ok(request) = Request::parse(&request_head) {
-                        let https_port_str = if task_config.server.https_port == 443 {
-                            "".to_string()
-                        } else {
-                            format!(":{}", task_config.server.https_port)
-                        };
-
-                        let local_ip_str = local_ip.to_string();
-                        let host = request
-                            .headers
-                            .get("Host")
-                            .map(|s| s.as_str())
-                            .unwrap_or(&local_ip_str);
-                        let clean_host = host.split(':').next().unwrap_or(host);
-
-                        let redirect_response = Response::redirect(
-                            "301 Moved Permanently",
-                            &format!("https://{}{}{}", clean_host, https_port_str, request.path),
-                        );
-
-                        match redirect_response
-                            .write_headers(&mut stream, &task_config)
-                            .await
-                        {
-                            Ok(()) => (),
-                            Err(e) => {
-                                logger::error_log(
-                                    &task_config,
-                                    "core",
-                                    format!("Failed to redirect to https: {}", e),
-                                )
-                                .await;
-                                return;
-                            }
-                        };
-
-                        logger::access(
-                            &task_config,
-                            &request,
-                            &redirect_response,
-                            peer_ip,
-                            local_ip,
-                        )
+            let request_head: Vec<u8> = match tokio::time::timeout(
+                timeout_duration,
+                read_request_head(&mut stream, MAX_HEADER_SIZE),
+            )
+            .await
+            {
+                Ok(Ok(h)) => h,
+                Ok(Err(e)) => {
+                    logger::error_log(&task_config, "core", format!("Connection error: {}", e))
                         .await;
-                    }
+                    vec![]
+                }
+                Err(_) => {
+                    logger::error_log(
+                        &task_config,
+                        "core",
+                        "HTTP Redirect connection timed out".to_string(),
+                    )
+                    .await;
+                    vec![]
                 }
             };
 
-            if let Err(_) = tokio::time::timeout(timeout_duration, task).await {
-                logger::error_log(
-                    &task_config,
-                    "core",
-                    "HTTP Redirect connection timed out".to_string(),
-                )
-                .await;
+            if !request_head.is_empty() {
+                if let Ok(request) = Request::parse(&request_head) {
+                    let https_port_str = if task_config.server.https_port == 443 {
+                        "".to_string()
+                    } else {
+                        format!(":{}", task_config.server.https_port)
+                    };
+
+                    let local_ip_str = local_ip.to_string();
+                    let host = request
+                        .headers
+                        .get("Host")
+                        .map(|s| s.as_str())
+                        .unwrap_or(&local_ip_str);
+                    let clean_host = host.split(':').next().unwrap_or(host);
+
+                    let redirect_response = Response::redirect(
+                        "301 Moved Permanently",
+                        &format!("https://{}{}{}", clean_host, https_port_str, request.path),
+                    );
+
+                    match redirect_response
+                        .write_headers(&mut stream, &task_config)
+                        .await
+                    {
+                        Ok(()) => (),
+                        Err(e) => {
+                            logger::error_log(
+                                &task_config,
+                                "core",
+                                format!("Failed to redirect to https: {}", e),
+                            )
+                            .await;
+                            return;
+                        }
+                    };
+
+                    logger::access(
+                        &task_config,
+                        &request,
+                        &redirect_response,
+                        peer_ip,
+                        local_ip,
+                    )
+                    .await;
+                }
             }
         });
     }
@@ -212,33 +198,24 @@ pub async fn serve_https(config: Arc<Config>) {
         tokio::spawn(async move {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
-            let task = async {
-                match acceptor.accept(stream).await {
-                    Ok(tls_stream) => {
-                        if let Err(e) =
-                            handle(tls_stream, Arc::clone(&task_config), peer_ip, local_ip).await
-                        {
-                            logger::error_log(
-                                &task_config,
-                                "core",
-                                format!("Connection error: {}", e),
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        logger::error_log(
-                            &task_config,
-                            "tls",
-                            format!("TLS handshake failed: {}", e),
-                        )
+            let tls_stream = match tokio::time::timeout(timeout_duration, acceptor.accept(stream))
+                .await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => {
+                    logger::error_log(&task_config, "tls", format!("TLS handshake failed: {}", e))
                         .await;
-                    }
+                    return;
+                }
+                Err(_) => {
+                    logger::error_log(&task_config, "tls", "TLS handshake timed out".to_string())
+                        .await;
+                    return;
                 }
             };
 
-            if let Err(_) = tokio::time::timeout(timeout_duration, task).await {
-                logger::error_log(&task_config, "core", "Connection timed out".to_string()).await;
+            if let Err(e) = handle(tls_stream, Arc::clone(&task_config), peer_ip, local_ip).await {
+                logger::error_log(&task_config, "core", format!("Connection error: {}", e)).await;
             }
         });
     }
@@ -259,9 +236,23 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let request_head: Vec<u8> = read_request_head(&mut stream, MAX_HEADER_SIZE).await?;
+    let request_head: Vec<u8> = match tokio::time::timeout(
+        Duration::from_secs(CONNECTION_TIMEOUT_SEC),
+        read_request_head(&mut stream, MAX_HEADER_SIZE),
+    )
+    .await
+    {
+        Ok(Ok(head)) => head,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Client timed out while sending request headers.",
+            ));
+        }
+    };
 
-    if request_head == vec![] {
+    if request_head.is_empty() {
         return Ok(());
     }
 

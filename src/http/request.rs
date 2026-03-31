@@ -2,32 +2,35 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Result};
 
 /// Represents a parsed HTTP request line together with its header map.
-pub struct Request {
-    pub method: String,
-    pub path: String,
-    pub version: String,
-    pub headers: HashMap<String, String>,
+pub struct Request<'a> {
+    pub method: &'a str,
+    pub path: &'a str,
+    pub version: &'a str,
+    headers: HashMap<&'a str, &'a str>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Parses a raw HTTP request buffer into a [`Request`] value.
     ///
     /// # Arguments
     ///
     /// * `buffer` - The raw bytes read from the client connection.
-    pub fn parse(buffer: &[u8]) -> Result<Self> {
-        let header_end = Self::find_headers_end(buffer).ok_or(Error::new(ErrorKind::InvalidData, "No header terminator."))?;
+    pub fn parse(buffer: &'a [u8]) -> Result<Self> {
+        let header_end = Self::find_headers_end(buffer)
+            .ok_or(Error::new(ErrorKind::InvalidData, "No header terminator."))?;
 
         let header_bytes = &buffer[..header_end];
         let mut lines = header_bytes.split(|&b| b == b'\n');
 
-        let first_line = lines.next().ok_or(Error::new(ErrorKind::InvalidData, "Missing request line."))?;
+        let first_line = lines
+            .next()
+            .ok_or(Error::new(ErrorKind::InvalidData, "Missing request line."))?;
 
         let first_line = Self::strip_cr(first_line);
 
         let (method, path, version) = Self::split_request_line(first_line)?;
 
-        let mut headers = HashMap::new();
+        let mut headers: HashMap<&'a str, &'a str> = HashMap::new();
 
         for line in lines {
             let line = Self::strip_cr(line);
@@ -39,22 +42,37 @@ impl Request {
             let (key, value) = Self::parse_header(line)?;
 
             let key = std::str::from_utf8(key)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header key."))?
-                .to_ascii_lowercase();
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header key."))?;
 
-            let value = std::str::from_utf8(value)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header value."))?
-                .to_string();
+            let val_str = std::str::from_utf8(value)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header value"))?;
 
-            headers.insert(key, value);
+            let val_str = val_str.trim();
+
+            headers.insert(key, val_str);
         }
 
         Ok(Self {
-            method: std::str::from_utf8(method).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
-            path: std::str::from_utf8(path).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
-            version: std::str::from_utf8(version).map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?.to_string(),
+            method: std::str::from_utf8(method)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
+            path: std::str::from_utf8(path)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
+            version: std::str::from_utf8(version)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
             headers,
         })
+    }
+
+    /// Retrieves a header value using a case-insensitive search. Optimized for zero-copy.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `search_key` - header key to retreive from request.
+    pub fn header(&self, search_key: &str) -> Option<&'a str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(search_key))
+            .map(|(_, v)| *v)
     }
 
     /// Finds the byte offset where the HTTP header block terminates.
@@ -154,13 +172,16 @@ mod tests {
         assert_eq!(request.method, "GET");
         assert_eq!(request.path, "/docs");
         assert_eq!(request.version, "HTTP/1.1");
-        assert_eq!(request.headers.get("host").map(String::as_str), Some("example.com"));
         assert_eq!(
-            request.headers.get("user-agent").map(String::as_str),
+            request.header("host"),
+            Some("example.com")
+        );
+        assert_eq!(
+            request.header("user-agent"),
             Some("Ferrox Test")
         );
         assert_eq!(
-            request.headers.get("x-value").map(String::as_str),
+            request.header("x-value"),
             Some("spaced value")
         );
     }

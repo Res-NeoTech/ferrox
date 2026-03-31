@@ -63,11 +63,13 @@ While Ferrox is evolving, it maintains a minimal footprint. Current limitations 
 ## Future Direction
 
 Natural next steps for the project include:
-- Zero-copy request parsing for an even lower memory footprint.
-- Keep-alive support for persistent connections.
-- Implementing comprehensive tests and benchmarks.
-- Reverse proxy feature.
-- Host configuration.
+- [x] YAML configuration parsing
+- [x] TLS Support (HTTPS) via `tokio-rustls`
+- [x] Zero-copy request parsing for an even lower memory footprint.
+- [ ] Keep-alive support for persistent connections.
+- [ ] Implementing comprehensive tests and benchmarks.
+- [ ] Reverse proxy feature.
+- [ ] Host configuration.
 
 ## License
 

@@ -119,12 +119,18 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                         format!(":{}", task_config.server.https_port)
                     };
 
-                    let local_ip_str = local_ip.to_string();
-                    let host = request
-                        .headers
-                        .get("Host")
-                        .map(|s| s.as_str())
-                        .unwrap_or(&local_ip_str);
+                    let host_header = request.header("host");
+                    let local_ip_str;
+
+                    let host = match host_header {
+                        Some(h) => h,
+                        None => {
+                            // ONLY allocate if the header is actually missing, as it happens rarely, allocations will also be rare here.
+                            local_ip_str = local_ip.to_string();
+                            &local_ip_str
+                        }
+                    };
+
                     let clean_host = host.split(':').next().unwrap_or(host);
 
                     let redirect_response = Response::redirect(
@@ -236,7 +242,8 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (request_head, _leftover_body) = match tokio::time::timeout( //_leftover_body is not used for now.
+    let (request_head, _leftover_body) = match tokio::time::timeout(
+        //_leftover_body is not used for now.
         Duration::from_secs(CONNECTION_TIMEOUT_SEC),
         read_request_head(&mut stream, MAX_HEADER_SIZE),
     )
@@ -361,7 +368,10 @@ fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
 ///
 /// * `stream` - The TCP stream connected to the client.
 /// * `max_header_size` - Max header size authorized.
-async fn read_request_head<S>(stream: &mut S, max_header_size: u64) -> std::io::Result<(Vec<u8>, Vec<u8>)>
+async fn read_request_head<S>(
+    stream: &mut S,
+    max_header_size: u64,
+) -> std::io::Result<(Vec<u8>, Vec<u8>)>
 where
     S: tokio::io::AsyncRead + Unpin,
 {
@@ -392,7 +402,7 @@ where
         {
             let header_end_index = check_start + pos + 4;
             let leftover_body = full_data.split_off(header_end_index);
-            
+
             return Ok((full_data, leftover_body));
         }
 

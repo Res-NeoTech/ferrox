@@ -37,7 +37,7 @@ async fn append_log(config: &Config, append_file: &str, log: String) -> std::io:
 /// * `request` - The incoming HTTP request.
 /// * `response` - The outgoing HTTP response.
 /// * `stream` - The TCP stream of the connection.
-pub async fn access(config: &Config, request: &Request, response: &Response, connecting_ip: IpAddr, requested_ip: IpAddr) {
+pub async fn access(config: &Config, request: &Request<'_>, response: &Response, connecting_ip: IpAddr, requested_ip: IpAddr) {
     let date: UtcDateTime = UtcDateTime::now();
 
     let log: String = format!(
@@ -49,7 +49,7 @@ pub async fn access(config: &Config, request: &Request, response: &Response, con
         request.version,
         response.status,
         response.content_length,
-        request.headers.get("user-agent").unwrap_or(&"-".to_string()),
+        request.header("user-agent").unwrap_or(&"-".to_string()),
         requested_ip.to_string()
     );
 

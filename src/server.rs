@@ -88,7 +88,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
         tokio::spawn(async move {
             let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
 
-            let request_head: Vec<u8> = match tokio::time::timeout(
+            let (request_head, _leftover_body) = match tokio::time::timeout(
                 timeout_duration,
                 read_request_head(&mut stream, MAX_HEADER_SIZE),
             )
@@ -98,7 +98,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                 Ok(Err(e)) => {
                     logger::error_log(&task_config, "core", format!("Connection error: {}", e))
                         .await;
-                    vec![]
+                    (vec![], vec![])
                 }
                 Err(_) => {
                     logger::error_log(
@@ -107,7 +107,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                         "HTTP Redirect connection timed out".to_string(),
                     )
                     .await;
-                    vec![]
+                    (vec![], vec![])
                 }
             };
 
@@ -236,7 +236,7 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let request_head: Vec<u8> = match tokio::time::timeout(
+    let (request_head, _leftover_body) = match tokio::time::timeout( //_leftover_body is not used for now.
         Duration::from_secs(CONNECTION_TIMEOUT_SEC),
         read_request_head(&mut stream, MAX_HEADER_SIZE),
     )
@@ -361,7 +361,7 @@ fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
 ///
 /// * `stream` - The TCP stream connected to the client.
 /// * `max_header_size` - Max header size authorized.
-async fn read_request_head<S>(stream: &mut S, max_header_size: u64) -> std::io::Result<Vec<u8>>
+async fn read_request_head<S>(stream: &mut S, max_header_size: u64) -> std::io::Result<(Vec<u8>, Vec<u8>)>
 where
     S: tokio::io::AsyncRead + Unpin,
 {
@@ -375,7 +375,7 @@ where
 
         if bytes_read == 0 {
             if full_data.is_empty() {
-                return Ok(vec![]);
+                return Ok((vec![], vec![]));
             } else {
                 return Err(Error::new(
                     ErrorKind::UnexpectedEof,
@@ -386,11 +386,14 @@ where
 
         full_data.extend_from_slice(&temp_buffer[..bytes_read]);
 
-        if full_data[check_start..]
+        if let Some(pos) = full_data[check_start..]
             .windows(4)
-            .any(|window| window == b"\r\n\r\n")
+            .position(|window| window == b"\r\n\r\n")
         {
-            break;
+            let header_end_index = check_start + pos + 4;
+            let leftover_body = full_data.split_off(header_end_index);
+            
+            return Ok((full_data, leftover_body));
         }
 
         if full_data.len() > max_header_size as usize {
@@ -402,6 +405,4 @@ where
 
         search_start = full_data.len();
     }
-
-    Ok(full_data)
 }

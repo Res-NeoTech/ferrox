@@ -45,7 +45,7 @@ impl<'a> Request<'a> {
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header key."))?;
 
             let val_str = std::str::from_utf8(value)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header value"))?;
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid header value."))?;
 
             let val_str = val_str.trim();
 
@@ -54,11 +54,11 @@ impl<'a> Request<'a> {
 
         Ok(Self {
             method: std::str::from_utf8(method)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             path: std::str::from_utf8(path)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             version: std::str::from_utf8(version)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8"))?,
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             headers,
         })
     }

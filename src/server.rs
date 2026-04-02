@@ -9,7 +9,7 @@ use urlencoding::decode;
 
 use crate::config::Config;
 use crate::handlers::static_files::serve_file;
-use crate::http::request::{Request};
+use crate::http::request::Request;
 use crate::http::response::{Body, Response};
 use crate::utils::logger;
 
@@ -90,7 +90,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
 
             let (request_head, _leftover_body) = match tokio::time::timeout(
                 timeout_duration,
-                read_request_head(&mut stream, MAX_HEADER_SIZE),
+                read_request_head(&mut stream, MAX_HEADER_SIZE, vec![]),
             )
             .await
             {
@@ -245,7 +245,7 @@ where
     //_leftover_body is not used for now.
     let (request_head, _leftover_body) = match tokio::time::timeout(
         Duration::from_secs(CONNECTION_TIMEOUT_SEC),
-        read_request_head(&mut stream, MAX_HEADER_SIZE),
+        read_request_head(&mut stream, MAX_HEADER_SIZE, vec![]),
     )
     .await
     {
@@ -274,7 +274,9 @@ where
             .await;
 
             let error_res = Response::error("400", "Bad Request");
-            let _ = error_res.write_headers(&mut stream, &config, "close").await?;
+            let _ = error_res
+                .write_headers(&mut stream, &config, "close")
+                .await?;
             if let Body::Bytes(b) = error_res.body {
                 let _ = stream.write_all(&b).await;
             }
@@ -298,7 +300,9 @@ where
         Ok(p) => p.into_owned(),
         Err(_) => {
             let error_res = Response::error("400", "Bad Request");
-            let _ = error_res.write_headers(&mut stream, &config, "close").await?;
+            let _ = error_res
+                .write_headers(&mut stream, &config, "close")
+                .await?;
             if let Body::Bytes(b) = error_res.body {
                 let _ = stream.write_all(&b).await;
             }
@@ -326,7 +330,9 @@ where
         }
     };
 
-    response.write_headers(&mut stream, &config, connection_type).await?;
+    response
+        .write_headers(&mut stream, &config, connection_type)
+        .await?;
 
     match &mut response.body {
         Body::Bytes(bytes) => {
@@ -382,13 +388,25 @@ fn load_tls_config(config: &Config) -> std::io::Result<ServerConfig> {
 async fn read_request_head<S>(
     stream: &mut S,
     max_header_size: u64,
+    previous_leftover_body: Vec<u8>,
 ) -> std::io::Result<(Vec<u8>, Vec<u8>)>
 where
     S: tokio::io::AsyncRead + Unpin,
 {
-    let mut full_data: Vec<u8> = Vec::with_capacity(1024);
+    let mut full_data: Vec<u8> = previous_leftover_body;
+
+    if let Some(pos) = full_data
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+    {
+        let header_end_index = pos + 4;
+        let leftover_body = full_data.split_off(header_end_index);
+
+        return Ok((full_data, leftover_body));
+    }
+
     let mut temp_buffer: [u8; 1024] = [0u8; 1024];
-    let mut search_start: usize = 0;
+    let mut search_start: usize = full_data.len();
 
     loop {
         let bytes_read: usize = stream.read(&mut temp_buffer).await?;

@@ -9,7 +9,7 @@ use urlencoding::decode;
 
 use crate::config::Config;
 use crate::handlers::static_files::serve_file;
-use crate::http::request::Request;
+use crate::http::request::{Request};
 use crate::http::response::{Body, Response};
 use crate::utils::logger;
 
@@ -139,7 +139,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                     );
 
                     match redirect_response
-                        .write_headers(&mut stream, &task_config)
+                        .write_headers(&mut stream, &task_config, "close")
                         .await
                     {
                         Ok(()) => (),
@@ -242,8 +242,8 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
+    //_leftover_body is not used for now.
     let (request_head, _leftover_body) = match tokio::time::timeout(
-        //_leftover_body is not used for now.
         Duration::from_secs(CONNECTION_TIMEOUT_SEC),
         read_request_head(&mut stream, MAX_HEADER_SIZE),
     )
@@ -274,7 +274,7 @@ where
             .await;
 
             let error_res = Response::error("400", "Bad Request");
-            let _ = error_res.write_headers(&mut stream, &config).await?;
+            let _ = error_res.write_headers(&mut stream, &config, "close").await?;
             if let Body::Bytes(b) = error_res.body {
                 let _ = stream.write_all(&b).await;
             }
@@ -283,11 +283,22 @@ where
         }
     };
 
+    let connection_type: &str = match request.header("Connection") {
+        Some(t) => t,
+        None => {
+            if request.version == "HTTP/1.1" {
+                "keep-alive"
+            } else {
+                "close"
+            }
+        }
+    };
+
     let decoded_path = match decode(&request.path) {
         Ok(p) => p.into_owned(),
         Err(_) => {
             let error_res = Response::error("400", "Bad Request");
-            let _ = error_res.write_headers(&mut stream, &config).await?;
+            let _ = error_res.write_headers(&mut stream, &config, "close").await?;
             if let Body::Bytes(b) = error_res.body {
                 let _ = stream.write_all(&b).await;
             }
@@ -315,7 +326,7 @@ where
         }
     };
 
-    response.write_headers(&mut stream, &config).await?;
+    response.write_headers(&mut stream, &config, connection_type).await?;
 
     match &mut response.body {
         Body::Bytes(bytes) => {

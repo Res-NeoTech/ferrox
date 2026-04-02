@@ -30,14 +30,15 @@ impl Response {
         &self,
         writer: &mut W,
         config: &Config,
+        connection: &str
     ) -> std::io::Result<()> {
         let mut header_string = format!(
             "HTTP/1.1 {}\r\n\
          Content-Type: {}\r\n\
          Content-Length: {}\r\n\
-         Connection: close\r\n\
+         Connection: {}\r\n\
          Server: Ferrox\r\n",
-            self.status, self.content_type, self.content_length,
+            self.status, self.content_type, self.content_length, connection
         );
 
         for (key, value) in &config.headers {

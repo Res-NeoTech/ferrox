@@ -17,6 +17,7 @@ Ferrox is built to provide a deep understanding of web server mechanics, specifi
 ## Key Features
 
 - **Flexible Routing:** Serves standard static files or operates as a router for Single Page Applications (SPAs).
+- **Keep-Alive:** Perfectly handles `keep-alive` and `close` connection types without sacrificing performance.
 - **HTTPS & TLS Support:** Built-in TLS support powered by `tokio-rustls`, allowing secure connections via custom or Certbot-generated certificates.
 - **High Performance:** Handles thousands of concurrent connections using Tokio's lightweight asynchronous tasks in an event-driven architecture.
 - **Robust Parsing & Security:** Safely parses HTTP requests using dynamic buffers to protect against malformed data. Includes connection timeouts to mitigate Slowloris attacks.
@@ -34,7 +35,7 @@ At a high level, Ferrox:
 5. Parses the request line (method, path, HTTP version) efficiently, minimizing memory allocations.
 6. Maps the requested path into the target directory (e.g., `www/`), detecting content types via `mime_guess`.
 7. Serves the file via async I/O, acts as an SPA router, or returns an appropriate error page (`400`, `403`, `404`, `500`).
-8. Writes a full HTTP response back to the client.
+8. Uses both `keep-alive` and `close` connection types to return a full HTTP response back to the client.
 
 ## Configuration
 
@@ -57,7 +58,6 @@ Then open `http://127.0.0.1/` (or your configured port) in your browser.
 
 While Ferrox is evolving, it maintains a minimal footprint. Current limitations include:
 - Request bodies are not fully parsed yet (optimized primarily for `GET`/`HEAD` requests).
-- No keep-alive support (`Connection: close` is hardcoded for now).
 - It is an experimental project and should be evaluated thoroughly before being used as a hardened production server facing the public internet.
 
 ## Future Direction
@@ -66,7 +66,7 @@ Natural next steps for the project include:
 - [x] YAML configuration parsing
 - [x] TLS Support (HTTPS) via `tokio-rustls`
 - [x] Zero-copy request parsing for an even lower memory footprint.
-- [ ] Keep-alive support for persistent connections.
+- [x] Keep-alive support for persistent connections.
 - [ ] Implementing comprehensive tests and benchmarks.
 - [ ] Reverse proxy feature.
 - [ ] Host configuration.

@@ -10,7 +10,10 @@ const INDEXING_TEMPLATE: &str = include_str!("../../templates/indexing.html");
 /// * `code` - The HTTP error status code.
 /// * `message` - The error message to display.
 pub fn render_error(code: &str, message: &str) -> Vec<u8> {
-    ERROR_TEMPLATE.replace("{{CODE}}", code).replace("{{MESSAGE}}", message).into_bytes()
+    ERROR_TEMPLATE
+        .replace("{{CODE}}", code)
+        .replace("{{MESSAGE}}", message)
+        .into_bytes()
 }
 
 /// Renders a directory indexing page by replacing placeholders in the indexing template.
@@ -21,7 +24,10 @@ pub fn render_error(code: &str, message: &str) -> Vec<u8> {
 /// * `list` - The HTML list of files and directories within the directory.
 pub fn render_indexing(title: &str, list: &str) -> Vec<u8> {
     let safe_title = encode_safe(title);
-    INDEXING_TEMPLATE.replace("{{TITLE}}", &safe_title).replace("{{LISTING}}", list).into_bytes()
+    INDEXING_TEMPLATE
+        .replace("{{TITLE}}", &safe_title)
+        .replace("{{LISTING}}", list)
+        .into_bytes()
 }
 
 #[cfg(test)]
@@ -44,7 +50,10 @@ mod tests {
         ))
         .expect("valid utf-8");
 
-        assert!(rendered.contains("&lt;script&gt;"), "rendered output: {rendered}");
+        assert!(
+            rendered.contains("&lt;script&gt;"),
+            "rendered output: {rendered}"
+        );
         assert!(rendered.contains("alert"), "rendered output: {rendered}");
         assert!(rendered.contains("script"), "rendered output: {rendered}");
         assert!(rendered.contains("<li><a href=\"file.txt\">file.txt</a></li>"));

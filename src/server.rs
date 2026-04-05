@@ -1,22 +1,32 @@
-use std::io::{Error, ErrorKind};
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use std::{
+    fs::File,
+    io::{BufReader, Error, ErrorKind},
+    net::IpAddr,
+    sync::Arc,
+    time::Duration,
+};
+
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+
+use tokio_rustls::{
+    TlsAcceptor,
+    rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer},
+};
+
 use urlencoding::decode;
 
-use crate::config::Config;
-use crate::handlers::static_files::serve_file;
-use crate::http::request::Request;
-use crate::http::response::{Body, Response};
-use crate::utils::logger;
-
-use std::fs::File;
-use std::io::BufReader;
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer};
+use crate::{
+    config::Config,
+    handlers::static_files::serve_file,
+    http::{
+        request::Request,
+        response::{Body, Response},
+    },
+    utils::logger,
+};
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
 const CONNECTION_TIMEOUT_SEC: u64 = 10;

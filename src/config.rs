@@ -1,5 +1,6 @@
-use serde::{Deserialize};
 use std::{collections::HashMap, fs};
+
+use serde::Deserialize;
 
 /// Stores the network address settings used when binding the HTTP server.
 #[derive(Deserialize, Debug, Clone)]
@@ -7,21 +8,21 @@ pub struct ServerConfig {
     pub http_port: u16,
     pub https_port: u16,
     pub addr: String,
-    pub router: RouterPreset
+    pub router: RouterPreset,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RouterPreset {
     Static,
-    Spa
+    Spa,
 }
 
 /// Defines the filesystem paths used for static files and log output.
 #[derive(Deserialize, Debug, Clone)]
 pub struct PathsConfig {
     pub serve_dir: String,
-    pub log_dir: String
+    pub log_dir: String,
 }
 
 // Defines basic tls config.
@@ -39,7 +40,7 @@ pub struct Config {
     pub paths: PathsConfig,
     #[serde(default)]
     pub headers: HashMap<String, String>,
-    pub tls: TlsConfig
+    pub tls: TlsConfig,
 }
 
 impl Config {
@@ -50,9 +51,9 @@ impl Config {
     /// * `path` - The path to the YAML configuration file.
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let config_str: String = fs::read_to_string(path)?;
-        
-        let config: Config = serde_yaml::from_str(&config_str)?; 
-        
+
+        let config: Config = serde_yaml::from_str(&config_str)?;
+
         Ok(config)
     }
 }

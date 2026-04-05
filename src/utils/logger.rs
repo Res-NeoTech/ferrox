@@ -1,10 +1,11 @@
 use std::net::IpAddr;
-use tokio::fs::OpenOptions; 
+
+use time::UtcDateTime;
+use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
-use crate::config::Config; 
+use crate::config::Config;
 use crate::http::{request::Request, response::Response};
-use time::UtcDateTime; 
 
 /// Appends a log line to a specified log file.
 ///
@@ -37,7 +38,13 @@ async fn append_log(config: &Config, append_file: &str, log: String) -> std::io:
 /// * `request` - The incoming HTTP request.
 /// * `response` - The outgoing HTTP response.
 /// * `stream` - The TCP stream of the connection.
-pub async fn access(config: &Config, request: &Request<'_>, response: &Response, connecting_ip: IpAddr, requested_ip: IpAddr) {
+pub async fn access(
+    config: &Config,
+    request: &Request<'_>,
+    response: &Response,
+    connecting_ip: IpAddr,
+    requested_ip: IpAddr,
+) {
     let date: UtcDateTime = UtcDateTime::now();
 
     let log: String = format!(
@@ -54,8 +61,11 @@ pub async fn access(config: &Config, request: &Request<'_>, response: &Response,
     );
 
     match append_log(config, "access.log", log).await {
-        Ok(()) => { },
-        Err(_) => eprintln!("Failed to persist log. Make sure directory {} exists.", config.paths.log_dir)
+        Ok(()) => {}
+        Err(_) => eprintln!(
+            "Failed to persist log. Make sure directory {} exists.",
+            config.paths.log_dir
+        ),
     };
 }
 
@@ -71,7 +81,10 @@ pub async fn error_log(config: &Config, concern: &str, error: String) {
     let log: String = format!("{} [{}]: {}", date.to_string(), concern, error);
 
     match append_log(config, "error.log", log).await {
-        Ok(()) => { },
-        Err(_) => eprintln!("Failed to persist log. Make sure directory {} exists.", config.paths.log_dir)
+        Ok(()) => {}
+        Err(_) => eprintln!(
+            "Failed to persist log. Make sure directory {} exists.",
+            config.paths.log_dir
+        ),
     };
 }

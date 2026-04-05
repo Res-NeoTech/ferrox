@@ -64,9 +64,9 @@ impl<'a> Request<'a> {
     }
 
     /// Retrieves a header value using a case-insensitive search. Optimized for zero-copy.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `search_key` - header key to retreive from request.
     pub fn header(&self, search_key: &str) -> Option<&'a str> {
         self.headers
@@ -172,18 +172,9 @@ mod tests {
         assert_eq!(request.method, "GET");
         assert_eq!(request.path, "/docs");
         assert_eq!(request.version, "HTTP/1.1");
-        assert_eq!(
-            request.header("host"),
-            Some("example.com")
-        );
-        assert_eq!(
-            request.header("user-agent"),
-            Some("Ferrox Test")
-        );
-        assert_eq!(
-            request.header("x-value"),
-            Some("spaced value")
-        );
+        assert_eq!(request.header("host"), Some("example.com"));
+        assert_eq!(request.header("user-agent"), Some("Ferrox Test"));
+        assert_eq!(request.header("x-value"), Some("spaced value"));
     }
 
     #[test]

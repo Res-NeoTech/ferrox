@@ -2,8 +2,7 @@ use mime_guess::{Mime, mime};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use crate::config::Config;
-use crate::utils::templates::render_error;
+use crate::{config::Config, utils::templates::render_error};
 
 /// Stores the status line, headers, content metadata, and body of an HTTP response.
 pub struct Response {
@@ -30,7 +29,7 @@ impl Response {
         &self,
         writer: &mut W,
         config: &Config,
-        connection: &str
+        connection: &str,
     ) -> std::io::Result<()> {
         let mut header_string = format!(
             "HTTP/1.1 {}\r\n\

@@ -1,10 +1,12 @@
-mod server;
-mod http;
-mod handlers;
-mod utils;
 mod config;
-use config::Config;
+mod handlers;
+mod http;
+mod server;
+mod utils;
+
 use std::sync::Arc;
+
+use config::Config;
 
 /// Loads the application configuration file and starts the Ferrox HTTP server.
 #[tokio::main]

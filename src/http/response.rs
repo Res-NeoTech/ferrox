@@ -2,8 +2,7 @@ use mime_guess::{Mime, mime};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use crate::config::Config;
-use crate::utils::templates::render_error;
+use crate::{config::Config, utils::templates::render_error};
 
 /// Stores the status line, headers, content metadata, and body of an HTTP response.
 pub struct Response {
@@ -30,7 +29,7 @@ impl Response {
         &self,
         writer: &mut W,
         config: &Config,
-        connection: &str
+        connection: &str,
     ) -> std::io::Result<()> {
         let mut header_string = format!(
             "HTTP/1.1 {}\r\n\
@@ -40,6 +39,11 @@ impl Response {
          Server: Ferrox\r\n",
             self.status, self.content_type, self.content_length, connection
         );
+
+        if connection.eq_ignore_ascii_case("keep-alive") {
+            // For now, we hardcode timeout to 10 as it matches CONNECTION_TIMEOUT constant in server.rs, but this will be replaced when we introduce timeout in configuration.
+            header_string.push_str("Keep-Alive: timeout=10\r\n");
+        }
 
         for (key, value) in &config.headers {
             header_string.push_str(&format!("{}: {}\r\n", key, value));

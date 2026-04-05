@@ -1,2 +1,2 @@
-pub mod templates;
 pub mod logger;
+pub mod templates;

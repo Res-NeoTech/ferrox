@@ -1,22 +1,32 @@
-use std::io::{Error, ErrorKind};
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use std::{
+    fs::File,
+    io::{BufReader, Error, ErrorKind},
+    net::IpAddr,
+    sync::Arc,
+    time::Duration,
+};
+
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+
+use tokio_rustls::{
+    TlsAcceptor,
+    rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer},
+};
+
 use urlencoding::decode;
 
-use crate::config::Config;
-use crate::handlers::static_files::serve_file;
-use crate::http::request::Request;
-use crate::http::response::{Body, Response};
-use crate::utils::logger;
-
-use std::fs::File;
-use std::io::BufReader;
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer};
+use crate::{
+    config::Config,
+    handlers::static_files::serve_file,
+    http::{
+        request::Request,
+        response::{Body, Response},
+    },
+    utils::logger,
+};
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
 const CONNECTION_TIMEOUT_SEC: u64 = 10;
@@ -242,108 +252,115 @@ async fn handle<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    //_leftover_body is not used for now.
-    let (request_head, _leftover_body) = match tokio::time::timeout(
-        Duration::from_secs(CONNECTION_TIMEOUT_SEC),
-        read_request_head(&mut stream, MAX_HEADER_SIZE, vec![]),
-    )
-    .await
-    {
-        Ok(Ok(head)) => head,
-        Ok(Err(e)) => return Err(e),
-        Err(_) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Client timed out while sending request headers.",
-            ));
-        }
-    };
+    let mut leftover_buffer: Vec<u8> = Vec::new();
 
-    if request_head.is_empty() {
-        return Ok(());
+    loop {
+        let previous_leftovers = std::mem::take(&mut leftover_buffer);
+
+        let read_result = tokio::time::timeout(
+            Duration::from_secs(CONNECTION_TIMEOUT_SEC),
+            read_request_head(&mut stream, MAX_HEADER_SIZE, previous_leftovers),
+        )
+        .await;
+
+        let (request_head, leftover_body) = match read_result {
+            Ok(Ok(head)) => head,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => break,
+        };
+
+        leftover_buffer = leftover_body;
+
+        if request_head.is_empty() {
+            break;
+        }
+
+        let request = match Request::parse(&request_head) {
+            Ok(r) => r,
+            Err(e) => {
+                logger::error_log(
+                    &config,
+                    "parser",
+                    format!("Failed to parse http request: {}", e),
+                )
+                .await;
+
+                let error_res = Response::error("400", "Bad Request");
+                let _ = error_res
+                    .write_headers(&mut stream, &config, "close")
+                    .await?;
+                if let Body::Bytes(b) = error_res.body {
+                    let _ = stream.write_all(&b).await;
+                }
+
+                break;
+            }
+        };
+
+        let connection_type: &str = match request.header("Connection") {
+            Some(t) => t,
+            None => {
+                if request.version == "HTTP/1.1" {
+                    "keep-alive"
+                } else {
+                    "close"
+                }
+            }
+        };
+
+        let decoded_path = match decode(&request.path) {
+            Ok(p) => p.into_owned(),
+            Err(_) => {
+                let error_res = Response::error("400", "Bad Request");
+                let _ = error_res
+                    .write_headers(&mut stream, &config, "close")
+                    .await?;
+                if let Body::Bytes(b) = error_res.body {
+                    let _ = stream.write_all(&b).await;
+                }
+
+                break;
+            }
+        };
+
+        let mut response: Response = match serve_file(
+            &decoded_path,
+            &config.paths.serve_dir,
+            &config.server.router,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                logger::error_log(
+                    &config,
+                    "file",
+                    format!("Failed to server static file: {}", e),
+                )
+                .await;
+                Response::error("500", "Internal Server Error")
+            }
+        };
+
+        response
+            .write_headers(&mut stream, &config, connection_type)
+            .await?;
+
+        match &mut response.body {
+            Body::Bytes(bytes) => {
+                stream.write_all(bytes).await?;
+            }
+            Body::File(file) => {
+                tokio::io::copy(file, &mut stream).await?;
+            }
+        }
+
+        logger::access(&config, &request, &response, peer_ip, local_ip).await;
+
+        if connection_type.eq_ignore_ascii_case("close") {
+            break;
+        }
     }
-
-    let request = match Request::parse(&request_head) {
-        Ok(r) => r,
-        Err(e) => {
-            logger::error_log(
-                &config,
-                "parser",
-                format!("Failed to parse http request: {}", e),
-            )
-            .await;
-
-            let error_res = Response::error("400", "Bad Request");
-            let _ = error_res
-                .write_headers(&mut stream, &config, "close")
-                .await?;
-            if let Body::Bytes(b) = error_res.body {
-                let _ = stream.write_all(&b).await;
-            }
-
-            return Ok(());
-        }
-    };
-
-    let connection_type: &str = match request.header("Connection") {
-        Some(t) => t,
-        None => {
-            if request.version == "HTTP/1.1" {
-                "keep-alive"
-            } else {
-                "close"
-            }
-        }
-    };
-
-    let decoded_path = match decode(&request.path) {
-        Ok(p) => p.into_owned(),
-        Err(_) => {
-            let error_res = Response::error("400", "Bad Request");
-            let _ = error_res
-                .write_headers(&mut stream, &config, "close")
-                .await?;
-            if let Body::Bytes(b) = error_res.body {
-                let _ = stream.write_all(&b).await;
-            }
-
-            return Ok(());
-        }
-    };
-
-    let mut response: Response = match serve_file(
-        &decoded_path,
-        &config.paths.serve_dir,
-        &config.server.router,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            logger::error_log(
-                &config,
-                "file",
-                format!("Failed to server static file: {}", e),
-            )
-            .await;
-            Response::error("500", "Internal Server Error")
-        }
-    };
-
-    response
-        .write_headers(&mut stream, &config, connection_type)
-        .await?;
-
-    match &mut response.body {
-        Body::Bytes(bytes) => {
-            stream.write_all(bytes).await?;
-        }
-        Body::File(file) => {
-            tokio::io::copy(file, &mut stream).await?;
-        }
-    }
-
-    logger::access(&config, &request, &response, peer_ip, local_ip).await;
 
     Ok(())
 }

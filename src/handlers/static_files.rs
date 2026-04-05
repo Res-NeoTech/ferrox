@@ -1,10 +1,14 @@
-use crate::config::RouterPreset;
-use crate::http::response::{Body, Response};
-use crate::utils::templates::render_indexing;
-use html_escape::encode_safe;
-use mime_guess::{self};
 use std::path::PathBuf;
+
+use html_escape::encode_safe;
+use mime_guess;
 use tokio::fs::File;
+
+use crate::{
+    config::RouterPreset,
+    http::response::{Body, Response},
+    utils::templates::render_indexing,
+};
 
 /// Resolves a requested path inside the configured serving directory and returns a response.
 ///
@@ -117,7 +121,7 @@ async fn index_files(path: PathBuf, display_path: &str) -> Result<Vec<u8>, std::
         }
 
         let file_type = entry.file_type().await?;
-        
+
         let href = if file_type.is_dir() {
             format!("{}/", name)
         } else {
@@ -179,13 +183,9 @@ mod tests {
         fs::create_dir_all(Path::new(&serve_dir).join("docs")).expect("docs dir should be created");
 
         // ACT
-        let response = serve_file(
-            &"/docs",
-            &serve_dir,
-            &crate::config::RouterPreset::Static,
-        )
-        .await
-        .expect("directory request should succeed");
+        let response = serve_file(&"/docs", &serve_dir, &crate::config::RouterPreset::Static)
+            .await
+            .expect("directory request should succeed");
 
         // ASSERT
         assert_eq!(response.status, "301 Moved Permanently");
@@ -230,13 +230,9 @@ mod tests {
         .expect("index file should be written");
 
         // ACT
-        let response = serve_file(
-            &"/docs/",
-            &serve_dir,
-            &crate::config::RouterPreset::Static,
-        )
-        .await
-        .expect("directory request should succeed");
+        let response = serve_file(&"/docs/", &serve_dir, &crate::config::RouterPreset::Static)
+            .await
+            .expect("directory request should succeed");
 
         match response.body {
             Body::File(_) => {}
@@ -260,13 +256,9 @@ mod tests {
         fs::write(docs.join(".hidden"), "hidden").expect("hidden file should be written");
 
         // ACT
-        let response = serve_file(
-            &"/docs/",
-            &serve_dir,
-            &crate::config::RouterPreset::Static,
-        )
-        .await
-        .expect("directory request should succeed");
+        let response = serve_file(&"/docs/", &serve_dir, &crate::config::RouterPreset::Static)
+            .await
+            .expect("directory request should succeed");
 
         let body = match response.body {
             Body::Bytes(bytes) => String::from_utf8(bytes).expect("listing should be utf-8"),
@@ -351,13 +343,9 @@ mod tests {
         fs::create_dir_all(Path::new(&serve_dir).join("docs")).expect("docs dir should be created");
 
         // ACT
-        let response = serve_file(
-            &"/docs",
-            &serve_dir,
-            &crate::config::RouterPreset::Spa,
-        )
-        .await
-        .expect("directory request should succeed");
+        let response = serve_file(&"/docs", &serve_dir, &crate::config::RouterPreset::Spa)
+            .await
+            .expect("directory request should succeed");
 
         match response.body {
             Body::File(_) => {}

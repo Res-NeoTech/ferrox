@@ -1,8 +1,8 @@
-name: Rust CI/CD
+name: Ferrox CI/CD
 
 on:
   push:
-    branches: [ "master", "feat/cicd" ]
+    branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
 
@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    name: Build Ferrox
+    name: Test & Build Ferrox
     runs-on: ubuntu-latest
 
     permissions:
@@ -39,16 +39,17 @@ jobs:
           name: ferrox-linux-binary
           path: target/release/ferrox
           if-no-files-found: error
-      - name: Generate Release Tag
-        id: tag
-        run: echo "release_tag=v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
-
+      - name: Get version from Cargo.toml
+        id: cargo_version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d '"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: Release ${{ steps.tag.outputs.release_tag }}
+          tag_name: v. ${{ steps.cargo_version.outputs.version }}
+          name: v. ${{ steps.cargo_version.outputs.version }}
           draft: false
           prerelease: false
           files: |

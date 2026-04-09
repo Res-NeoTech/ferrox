@@ -297,16 +297,14 @@ where
             }
         };
 
-        let connection_type: &str = match request.header("Connection") {
-            Some(t) => t,
-            None => {
-                if request.version == "HTTP/1.1" {
-                    "keep-alive"
-                } else {
-                    "close"
-                }
-            }
+        let should_close: bool = match request.header("Connection") {
+            Some(header_val) => header_val
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("close")),
+            None => request.version != "HTTP/1.1",
         };
+
+        let connection_type = if should_close { "close" } else { "keep-alive" };
 
         let decoded_path = match decode(&request.path) {
             Ok(p) => p.into_owned(),
@@ -357,7 +355,7 @@ where
 
         logger::access(&config, &request, &response, peer_ip, local_ip).await;
 
-        if connection_type.eq_ignore_ascii_case("close") {
+        if should_close {
             break;
         }
     }

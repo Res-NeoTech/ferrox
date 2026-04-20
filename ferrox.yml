@@ -4,7 +4,10 @@ server:
   http_port: 80
   https_port: 443
   addr: 0.0.0.0
-  router: static # static/spa depending on what do you wanna host
+  # Optional: the default timeout is 10
+  timeout: 5
+  # Optional: router preset: static for classic static file website or spa for apps that use client-side routing (React, Vue.js, Angular, etc.)
+  router: static
 
 # Make sure to create these directories before starting Ferrox
 paths:
@@ -16,6 +19,7 @@ headers:
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
 
+# Optional: tls configuration
 # Request certificate using certbot for free or generate one yourself using OpenSSL (faster for testing)
 tls:
   enabled: true

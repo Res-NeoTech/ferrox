@@ -29,7 +29,6 @@ use crate::{
 };
 
 const MAX_HEADER_SIZE: u64 = 8192; // 8KB
-const CONNECTION_TIMEOUT_SEC: u64 = 10;
 const UNSPECIFIED_IP: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
 
 /// Starts the TCP server and spawns an async task for each accepted connection.
@@ -41,9 +40,9 @@ pub async fn serve_http(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.http_port);
     let listener = TcpListener::bind(&addr)
         .await
-        .expect(&format!("Ferrox failed to bind on http://{addr}"));
+        .expect(&format!("[ERROR] Ferrox failed to bind on http://{addr}"));
 
-    println!("Ferrox running on http://{addr}");
+    println!("[INFO] Ferrox running on http://{addr}");
 
     loop {
         let (stream, _) = match listener.accept().await {
@@ -78,9 +77,9 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.http_port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect(&format!("Ferrox failed to bind on http://{addr}"));
+        .expect(&format!("[ERROR] Ferrox failed to bind on http://{addr}"));
 
-    println!("HTTP Redirector running on http://{}", addr);
+    println!("[INFO] HTTP Redirector running on http://{}", addr);
 
     loop {
         let (mut stream, _) = match listener.accept().await {
@@ -96,7 +95,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
             .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
-            let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
+            let timeout_duration = Duration::from_secs(task_config.server.timeout);
 
             let (request_head, _leftover_body) = match tokio::time::timeout(
                 timeout_duration,
@@ -187,12 +186,12 @@ pub async fn serve_https(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.https_port);
     let listener = TcpListener::bind(&addr)
         .await
-        .expect(&format!("Ferrox failed to bind on https://{addr}"));
+        .expect(&format!("[ERROR] Ferrox failed to bind on https://{addr}"));
 
     let tls_server_config = load_tls_config(&config).expect("Failed to load TLS configuration");
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_server_config));
 
-    println!("Ferrox running on https://{addr}");
+    println!("[INFO] Ferrox running on https://{addr}");
 
     loop {
         let (stream, _) = match listener.accept().await {
@@ -212,7 +211,7 @@ pub async fn serve_https(config: Arc<Config>) {
             .unwrap_or(UNSPECIFIED_IP);
 
         tokio::spawn(async move {
-            let timeout_duration = Duration::from_secs(CONNECTION_TIMEOUT_SEC);
+            let timeout_duration = Duration::from_secs(task_config.server.timeout);
 
             let tls_stream = match tokio::time::timeout(timeout_duration, acceptor.accept(stream))
                 .await
@@ -258,7 +257,7 @@ where
         let previous_leftovers = std::mem::take(&mut leftover_buffer);
 
         let read_result = tokio::time::timeout(
-            Duration::from_secs(CONNECTION_TIMEOUT_SEC),
+            Duration::from_secs(config.server.timeout),
             read_request_head(&mut stream, MAX_HEADER_SIZE, previous_leftovers),
         )
         .await;

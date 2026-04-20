@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 /// Stores the network address settings used when binding the HTTP server.
 #[derive(Deserialize, Debug, Clone)]
@@ -8,14 +8,44 @@ pub struct ServerConfig {
     pub http_port: u16,
     pub https_port: u16,
     pub addr: String,
+    #[serde(default = "default_timeout")]
+    pub timeout: u64,
+    #[serde(default)]
     pub router: RouterPreset,
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RouterPreset {
     Static,
     Spa,
+}
+
+impl Default for RouterPreset {
+    fn default() -> Self {
+        RouterPreset::Static
+    }
+}
+
+impl<'de> Deserialize<'de> for RouterPreset {
+    /// Case-insensitive RouterPreset deserializer.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `deserializer` - Serde deserializer.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "static" => Ok(RouterPreset::Static),
+            "spa" => Ok(RouterPreset::Spa),
+            _ => {
+                eprintln!("[WARNING] Unknown router preset, falling back to static file serving.");
+                Ok(RouterPreset::Static)
+            },
+        }
+    }
 }
 
 /// Defines the filesystem paths used for static files and log output.
@@ -40,7 +70,24 @@ pub struct Config {
     pub paths: PathsConfig,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    #[serde(default = "default_tls_config")]
     pub tls: TlsConfig,
+}
+
+// Defaults
+
+/// Default value for timeout attribute.
+fn default_timeout() -> u64 {
+    10 
+}
+
+/// Default value for tls_config attribute.
+fn default_tls_config() -> TlsConfig {
+    TlsConfig { 
+        enabled: false, 
+        cert_path: String::new(), 
+        key_path: String::new()
+    }
 }
 
 impl Config {

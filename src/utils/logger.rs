@@ -63,7 +63,7 @@ pub async fn access(
     match append_log(config, "access.log", log).await {
         Ok(()) => {}
         Err(_) => eprintln!(
-            "Failed to persist log. Make sure directory {} exists.",
+            "[WARNING] Failed to persist log. Make sure directory {} exists.",
             config.paths.log_dir
         ),
     };
@@ -83,7 +83,7 @@ pub async fn error_log(config: &Config, concern: &str, error: String) {
     match append_log(config, "error.log", log).await {
         Ok(()) => {}
         Err(_) => eprintln!(
-            "Failed to persist log. Make sure directory {} exists.",
+            "[WARNING] Failed to persist log. Make sure directory {} exists.",
             config.paths.log_dir
         ),
     };

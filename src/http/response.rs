@@ -41,8 +41,7 @@ impl Response {
         );
 
         if connection.eq_ignore_ascii_case("keep-alive") {
-            // For now, we hardcode timeout to 10 as it matches CONNECTION_TIMEOUT constant in server.rs, but this will be replaced when we introduce timeout in configuration.
-            header_string.push_str("Keep-Alive: timeout=10\r\n");
+            header_string.push_str(&format!("Keep-Alive: timeout={}\r\n", config.server.timeout));
         }
 
         for (key, value) in &config.headers {

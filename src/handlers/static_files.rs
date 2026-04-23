@@ -20,6 +20,7 @@ pub async fn serve_file(
     file_path: &str,
     serving_dir: &str,
     logic: &RouterPreset,
+    index: &bool,
 ) -> Result<Response, std::io::Error> {
     let base = tokio::fs::canonicalize(&serving_dir).await?;
     let requested_path = base.join(file_path.trim_start_matches('/'));
@@ -51,10 +52,14 @@ pub async fn serve_file(
                 return serve_actual_file(index_html).await;
             }
 
-            return match index_files(canonical, file_path).await {
-                Ok(body) => Ok(Response::new_html("200 OK", body)),
-                Err(_) => Ok(Response::error("403", "Forbidden")),
-            };
+            if *index {
+                return match index_files(canonical, file_path).await {
+                    Ok(body) => Ok(Response::new_html("200 OK", body)),
+                    Err(_) => Ok(Response::error("403", "Forbidden")),
+                };
+            } else {
+                return Ok(Response::error("403", "Forbidden"));
+            }
         } else {
             return Ok(spa_fallback(&base).await?);
         }
@@ -183,9 +188,14 @@ mod tests {
         fs::create_dir_all(Path::new(&serve_dir).join("docs")).expect("docs dir should be created");
 
         // ACT
-        let response = serve_file(&"/docs", &serve_dir, &crate::config::RouterPreset::Static)
-            .await
-            .expect("directory request should succeed");
+        let response = serve_file(
+            &"/docs",
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false,
+        )
+        .await
+        .expect("directory request should succeed");
 
         // ASSERT
         assert_eq!(response.status, "301 Moved Permanently");
@@ -208,6 +218,7 @@ mod tests {
             &"/../secret.txt",
             &serve_dir,
             &crate::config::RouterPreset::Static,
+            &false,
         )
         .await
         .expect("traversal attempt should return a response");
@@ -230,9 +241,14 @@ mod tests {
         .expect("index file should be written");
 
         // ACT
-        let response = serve_file(&"/docs/", &serve_dir, &crate::config::RouterPreset::Static)
-            .await
-            .expect("directory request should succeed");
+        let response = serve_file(
+            &"/docs/",
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false,
+        )
+        .await
+        .expect("directory request should succeed");
 
         match response.body {
             Body::File(_) => {}
@@ -256,9 +272,14 @@ mod tests {
         fs::write(docs.join(".hidden"), "hidden").expect("hidden file should be written");
 
         // ACT
-        let response = serve_file(&"/docs/", &serve_dir, &crate::config::RouterPreset::Static)
-            .await
-            .expect("directory request should succeed");
+        let response = serve_file(
+            &"/docs/",
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &true,
+        )
+        .await
+        .expect("directory request should succeed");
 
         let body = match response.body {
             Body::Bytes(bytes) => String::from_utf8(bytes).expect("listing should be utf-8"),
@@ -269,6 +290,30 @@ mod tests {
         assert!(body.contains("file.txt"), "body was: {body}");
         assert!(body.contains("nested&#x2F;"), "body was: {body}");
         assert!(!body.contains(".hidden"), "body was: {body}");
+
+        cleanup(&root);
+    }
+
+    #[tokio::test]
+    async fn directory_listing_returns_forbidden_when_index_disabled() {
+        // ARRANGE
+        let (root, serve_dir) = create_serving_layout();
+        let docs = Path::new(&serve_dir).join("docs");
+        fs::create_dir_all(docs.join("nested")).expect("nested dir should be created");
+        fs::write(docs.join("file.txt"), "visible").expect("visible file should be written");
+
+        // ACT
+        let response = serve_file(
+            &"/docs/",
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false, // Disable indexing
+        )
+        .await
+        .expect("directory request should succeed");
+
+        // ASSERT
+        assert_eq!(response.status, "403 Forbidden");
 
         cleanup(&root);
     }
@@ -290,6 +335,7 @@ mod tests {
             &"/docs/getting-started",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
+            &false,
         )
         .await
         .expect("directory request should succeed");
@@ -316,6 +362,7 @@ mod tests {
             &"/docs/getting-started",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
+            &false,
         )
         .await
         .expect("directory request should succeed");
@@ -343,9 +390,14 @@ mod tests {
         fs::create_dir_all(Path::new(&serve_dir).join("docs")).expect("docs dir should be created");
 
         // ACT
-        let response = serve_file(&"/docs", &serve_dir, &crate::config::RouterPreset::Spa)
-            .await
-            .expect("directory request should succeed");
+        let response = serve_file(
+            &"/docs",
+            &serve_dir,
+            &crate::config::RouterPreset::Spa,
+            &false,
+        )
+        .await
+        .expect("directory request should succeed");
 
         match response.body {
             Body::File(_) => {}
@@ -375,6 +427,7 @@ mod tests {
             &"/docs/doc.js",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
+            &false,
         )
         .await
         .expect("directory request should succeed");

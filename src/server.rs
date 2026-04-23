@@ -324,6 +324,7 @@ where
             &decoded_path,
             &config.paths.serve_dir,
             &config.server.router,
+            &config.server.index
         )
         .await
         {

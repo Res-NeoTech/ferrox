@@ -5,13 +5,17 @@ use serde::{Deserialize, Deserializer};
 /// Stores the network address settings used when binding the HTTP server.
 #[derive(Deserialize, Debug, Clone)]
 pub struct ServerConfig {
+    #[serde(default = "default_http_port")]
     pub http_port: u16,
+    #[serde(default = "default_https_port")]
     pub https_port: u16,
     pub addr: String,
     #[serde(default = "default_timeout")]
     pub timeout: u64,
     #[serde(default)]
     pub router: RouterPreset,
+    #[serde(default)]
+    pub index: bool
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +83,14 @@ pub struct Config {
 /// Default value for timeout attribute.
 fn default_timeout() -> u64 {
     10 
+}
+
+fn default_http_port() -> u16 {
+    80
+}
+
+fn default_https_port() -> u16 {
+    443
 }
 
 /// Default value for tls_config attribute.

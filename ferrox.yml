@@ -1,6 +1,7 @@
 # Minimal working compose file
 
 server:
+  # These ports are default ones if you don't precise them
   http_port: 80
   https_port: 443
   addr: 0.0.0.0
@@ -8,6 +9,8 @@ server:
   timeout: 5
   # Optional: router preset: static for classic static file website or spa for apps that use client-side routing (React, Vue.js, Angular, etc.)
   router: static
+  # Enable directory indexing
+  index: true
 
 # Make sure to create these directories before starting Ferrox
 paths:

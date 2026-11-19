@@ -40,7 +40,7 @@ pub async fn serve_http(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.http_port);
     let listener = TcpListener::bind(&addr)
         .await
-        .expect(&format!("[ERROR] Ferrox failed to bind on http://{addr}"));
+        .unwrap_or_else(|e: Error| panic!("[ERROR] Ferrox failed to bind on http://{addr}: {e}"));
 
     println!("[INFO] Ferrox running on http://{addr}");
 
@@ -77,7 +77,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.http_port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect(&format!("[ERROR] Ferrox failed to bind on http://{addr}"));
+        .unwrap_or_else(|e: Error| panic!("[ERROR] Ferrox failed to bind on http://{addr}: {e}"));
 
     println!("[INFO] HTTP Redirector running on http://{}", addr);
 
@@ -120,58 +120,58 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
                 }
             };
 
-            if !request_head.is_empty() {
-                if let Ok(request) = Request::parse(&request_head) {
-                    let https_port_str = if task_config.server.https_port == 443 {
-                        "".to_string()
-                    } else {
-                        format!(":{}", task_config.server.https_port)
-                    };
+            if !request_head.is_empty()
+                && let Ok(request) = Request::parse(&request_head)
+            {
+                let https_port_str = if task_config.server.https_port == 443 {
+                    "".to_string()
+                } else {
+                    format!(":{}", task_config.server.https_port)
+                };
 
-                    let host_header = request.header("host");
-                    let local_ip_str;
+                let host_header = request.header("host");
+                let local_ip_str;
 
-                    let host = match host_header {
-                        Some(h) => h,
-                        None => {
-                            // ONLY allocate if the header is actually missing, as it happens rarely, allocations will also be rare here.
-                            local_ip_str = local_ip.to_string();
-                            &local_ip_str
-                        }
-                    };
+                let host = match host_header {
+                    Some(h) => h,
+                    None => {
+                        // ONLY allocate if the header is actually missing, as it happens rarely, allocations will also be rare here.
+                        local_ip_str = local_ip.to_string();
+                        &local_ip_str
+                    }
+                };
 
-                    let clean_host = host.split(':').next().unwrap_or(host);
+                let clean_host = host.split(':').next().unwrap_or(host);
 
-                    let redirect_response = Response::redirect(
-                        "301 Moved Permanently",
-                        &format!("https://{}{}{}", clean_host, https_port_str, request.path),
-                    );
+                let redirect_response = Response::redirect(
+                    "301 Moved Permanently",
+                    &format!("https://{}{}{}", clean_host, https_port_str, request.path),
+                );
 
-                    match redirect_response
-                        .write_headers(&mut stream, &task_config, "close")
-                        .await
-                    {
-                        Ok(()) => (),
-                        Err(e) => {
-                            logger::error_log(
-                                &task_config,
-                                "core",
-                                format!("Failed to redirect to https: {}", e),
-                            )
-                            .await;
-                            return;
-                        }
-                    };
+                match redirect_response
+                    .write_headers(&mut stream, &task_config, "close")
+                    .await
+                {
+                    Ok(()) => (),
+                    Err(e) => {
+                        logger::error_log(
+                            &task_config,
+                            "core",
+                            format!("Failed to redirect to https: {}", e),
+                        )
+                        .await;
+                        return;
+                    }
+                };
 
-                    logger::access(
-                        &task_config,
-                        &request,
-                        &redirect_response,
-                        peer_ip,
-                        local_ip,
-                    )
-                    .await;
-                }
+                logger::access(
+                    &task_config,
+                    &request,
+                    &redirect_response,
+                    peer_ip,
+                    local_ip,
+                )
+                .await;
             }
         });
     }
@@ -186,7 +186,7 @@ pub async fn serve_https(config: Arc<Config>) {
     let addr = format!("{}:{}", config.server.addr, config.server.https_port);
     let listener = TcpListener::bind(&addr)
         .await
-        .expect(&format!("[ERROR] Ferrox failed to bind on https://{addr}"));
+        .unwrap_or_else(|e: Error| panic!("[ERROR] Ferrox failed to bind on https://{addr}: {e}"));
 
     let tls_server_config = load_tls_config(&config).expect("Failed to load TLS configuration");
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_server_config));
@@ -285,7 +285,7 @@ where
                 .await;
 
                 let error_res = Response::error("400", "Bad Request");
-                let _ = error_res
+                error_res
                     .write_headers(&mut stream, &config, "close")
                     .await?;
                 if let Body::Bytes(b) = error_res.body {
@@ -305,11 +305,11 @@ where
 
         let connection_type = if should_close { "close" } else { "keep-alive" };
 
-        let decoded_path = match decode(&request.path) {
+        let decoded_path = match decode(request.path) {
             Ok(p) => p.into_owned(),
             Err(_) => {
                 let error_res = Response::error("400", "Bad Request");
-                let _ = error_res
+                error_res
                     .write_headers(&mut stream, &config, "close")
                     .await?;
                 if let Body::Bytes(b) = error_res.body {
@@ -324,7 +324,7 @@ where
             &decoded_path,
             &config.paths.serve_dir,
             &config.server.router,
-            &config.server.index
+            &config.server.index,
         )
         .await
         {

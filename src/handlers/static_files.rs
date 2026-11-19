@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use html_escape::encode_safe;
 use mime_guess;
@@ -30,7 +30,7 @@ pub async fn serve_file(
         Ok(_) => return Ok(Response::error("403", "Forbidden")),
         Err(_) => {
             if logic == &RouterPreset::Spa {
-                return Ok(spa_fallback(&base).await?);
+                return spa_fallback(&base).await;
             } else {
                 return Ok(Response::error("404", "Not Found"));
             }
@@ -61,7 +61,7 @@ pub async fn serve_file(
                 return Ok(Response::error("403", "Forbidden"));
             }
         } else {
-            return Ok(spa_fallback(&base).await?);
+            return spa_fallback(&base).await;
         }
     }
 
@@ -94,13 +94,13 @@ async fn serve_actual_file(path: PathBuf) -> Result<Response, std::io::Error> {
 ///
 /// # Arguments
 /// * `base` - The base directory from which static files are served.
-async fn spa_fallback(base: &PathBuf) -> Result<Response, std::io::Error> {
+async fn spa_fallback(base: &Path) -> Result<Response, std::io::Error> {
     let fallback = base.join("index.html");
 
     if tokio::fs::try_exists(&fallback).await.unwrap_or(false) {
-        return serve_actual_file(fallback).await;
+        serve_actual_file(fallback).await
     } else {
-        return Ok(Response::error("404", "Not Found"));
+        Ok(Response::error("404", "Not Found"))
     }
 }
 
@@ -189,7 +189,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs",
+            "/docs",
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -215,7 +215,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/../secret.txt",
+            "/../secret.txt",
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -242,7 +242,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/",
+            "/docs/",
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -273,7 +273,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/",
+            "/docs/",
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &true,
@@ -304,7 +304,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/",
+            "/docs/",
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false, // Disable indexing
@@ -332,7 +332,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/getting-started",
+            "/docs/getting-started",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -359,7 +359,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/getting-started",
+            "/docs/getting-started",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -391,7 +391,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs",
+            "/docs",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -424,7 +424,7 @@ mod tests {
 
         // ACT
         let response = serve_file(
-            &"/docs/doc.js",
+            "/docs/doc.js",
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,

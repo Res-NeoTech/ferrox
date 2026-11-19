@@ -49,15 +49,15 @@ pub async fn access(
 
     let log: String = format!(
         "{} - [{}] \"{} {} {}\" {} {} - \"{}\" \"{}\"",
-        connecting_ip.to_string(),
-        date.to_string(),
+        connecting_ip,
+        date,
         request.method,
         request.path,
         request.version,
         response.status,
         response.content_length,
-        request.header("user-agent").unwrap_or(&"-".to_string()),
-        requested_ip.to_string()
+        request.header("user-agent").unwrap_or("-"),
+        requested_ip
     );
 
     match append_log(config, "access.log", log).await {
@@ -78,7 +78,7 @@ pub async fn access(
 /// * `error` - The error message or description.
 pub async fn error_log(config: &Config, concern: &str, error: String) {
     let date: UtcDateTime = UtcDateTime::now();
-    let log: String = format!("{} [{}]: {}", date.to_string(), concern, error);
+    let log: String = format!("{} [{}]: {}", date, concern, error);
 
     match append_log(config, "error.log", log).await {
         Ok(()) => {}

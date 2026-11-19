@@ -15,26 +15,21 @@ pub struct ServerConfig {
     #[serde(default)]
     pub router: RouterPreset,
     #[serde(default)]
-    pub index: bool
+    pub index: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum RouterPreset {
+    #[default]
     Static,
     Spa,
 }
 
-impl Default for RouterPreset {
-    fn default() -> Self {
-        RouterPreset::Static
-    }
-}
-
 impl<'de> Deserialize<'de> for RouterPreset {
     /// Case-insensitive RouterPreset deserializer.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `deserializer` - Serde deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -47,7 +42,7 @@ impl<'de> Deserialize<'de> for RouterPreset {
             _ => {
                 eprintln!("[WARNING] Unknown router preset, falling back to static file serving.");
                 Ok(RouterPreset::Static)
-            },
+            }
         }
     }
 }
@@ -67,7 +62,7 @@ pub struct TlsConfig {
     pub key_path: String,
 }
 
-/// Represents the full Ferrox configuration loaded from `ferrox-compose.yml`.
+/// Represents the full Ferrox configuration loaded from `ferrox.yml`.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
@@ -82,7 +77,7 @@ pub struct Config {
 
 /// Default value for timeout attribute.
 fn default_timeout() -> u64 {
-    10 
+    10
 }
 
 fn default_http_port() -> u16 {
@@ -95,10 +90,10 @@ fn default_https_port() -> u16 {
 
 /// Default value for tls_config attribute.
 fn default_tls_config() -> TlsConfig {
-    TlsConfig { 
-        enabled: false, 
-        cert_path: String::new(), 
-        key_path: String::new()
+    TlsConfig {
+        enabled: false,
+        cert_path: String::new(),
+        key_path: String::new(),
     }
 }
 

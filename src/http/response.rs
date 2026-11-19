@@ -41,7 +41,10 @@ impl Response {
         );
 
         if connection.eq_ignore_ascii_case("keep-alive") {
-            header_string.push_str(&format!("Keep-Alive: timeout={}\r\n", config.server.timeout));
+            header_string.push_str(&format!(
+                "Keep-Alive: timeout={}\r\n",
+                config.server.timeout
+            ));
         }
 
         for (key, value) in &config.headers {
@@ -86,7 +89,7 @@ impl Response {
             status: code.to_string(),
             content_type: mime::TEXT_HTML,
             content_length: 0,
-            headers: vec![("Location".into(), format!("{to}").into())],
+            headers: vec![("Location".into(), to.to_string())],
             body: Body::Bytes(vec![]),
         }
     }

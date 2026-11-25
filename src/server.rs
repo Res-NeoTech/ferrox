@@ -16,8 +16,6 @@ use tokio_rustls::{
     rustls::{ServerConfig, pki_types::CertificateDer, pki_types::PrivateKeyDer},
 };
 
-use urlencoding::decode;
-
 use crate::{
     config::Config,
     handlers::static_files::serve_file,
@@ -145,7 +143,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
 
                 let redirect_response = Response::redirect(
                     "301 Moved Permanently",
-                    &format!("https://{}{}{}", clean_host, https_port_str, request.path),
+                    &format!("https://{}{}{}", clean_host, https_port_str, request.target),
                 );
 
                 match redirect_response
@@ -305,23 +303,9 @@ where
 
         let connection_type = if should_close { "close" } else { "keep-alive" };
 
-        let decoded_path = match decode(request.path) {
-            Ok(p) => p.into_owned(),
-            Err(_) => {
-                let error_res = Response::error("400", "Bad Request");
-                error_res
-                    .write_headers(&mut stream, &config, "close")
-                    .await?;
-                if let Body::Bytes(b) = error_res.body {
-                    let _ = stream.write_all(&b).await;
-                }
-
-                break;
-            }
-        };
-
         let mut response: Response = match serve_file(
-            &decoded_path,
+            request.path,
+            request.query,
             &config.paths.serve_dir,
             &config.server.router,
             &config.server.index,

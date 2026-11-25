@@ -4,7 +4,9 @@ use std::io::{Error, ErrorKind, Result};
 /// Represents a parsed HTTP request line together with its header map.
 pub struct Request<'a> {
     pub method: &'a str,
+    pub target: &'a str,
     pub path: &'a str,
+    pub query: Option<&'a str>,
     pub version: &'a str,
     headers: HashMap<&'a str, &'a str>,
 }
@@ -28,7 +30,9 @@ impl<'a> Request<'a> {
 
         let first_line = Self::strip_cr(first_line);
 
-        let (method, path, version) = Self::split_request_line(first_line)?;
+        let (method, target, version) = Self::split_request_line(first_line)?;
+
+        let (path, query) = Self::explode_path(target)?;
 
         let mut headers: HashMap<&'a str, &'a str> = HashMap::new();
 
@@ -55,7 +59,13 @@ impl<'a> Request<'a> {
         Ok(Self {
             method: std::str::from_utf8(method)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
+            target: std::str::from_utf8(target)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             path: std::str::from_utf8(path)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
+            query: query
+                .map(std::str::from_utf8)
+                .transpose()
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             version: std::str::from_utf8(version)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
@@ -84,7 +94,7 @@ impl<'a> Request<'a> {
         buf.windows(4).position(|w| w == b"\r\n\r\n")
     }
 
-    /// Splits the HTTP request line into method, path, and version slices.
+    /// Splits the HTTP request line into method, target(full path with params), and version slices.
     ///
     /// # Arguments
     ///
@@ -92,24 +102,17 @@ impl<'a> Request<'a> {
     fn split_request_line(line: &[u8]) -> Result<(&[u8], &[u8], &[u8])> {
         let mut parts = line.split(|&b| b == b' ');
 
-        let method = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No method."))?;
-        let path = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No path."))?;
-        let version = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No version."))?;
-
-        if parts.next().is_some() {
-            return Err(Error::new(
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(method), Some(target), Some(version), None)
+                if !method.is_empty() && !target.is_empty() && !version.is_empty() =>
+            {
+                Ok((method, target, version))
+            }
+            _ => Err(Error::new(
                 ErrorKind::InvalidData,
-                "Too many parts in request line.",
-            ));
+                "Malformed request line.",
+            )),
         }
-
-        Ok((method, path, version))
     }
 
     /// Parses a single HTTP header line into trimmed key and value slices.
@@ -127,6 +130,24 @@ impl<'a> Request<'a> {
         let value = &line[pos + 1..];
 
         Ok((Self::trim(key), Self::trim(value)))
+    }
+
+    /// Splits a request target into its path and optional query string.
+    ///
+    /// Only the first `?` separates the two, since `?` is allowed inside the query.
+    /// Returns `None` when the target has no `?`, and `Some(b"")` when it ends with one,
+    /// so `/page` and `/page?` stay distinguishable.
+    ///
+    /// Must run before URL decoding: an encoded `%3F` belongs to the path.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - The raw request target, e.g. `/search?q=ferrox`.
+    fn explode_path(target: &[u8]) -> Result<(&[u8], Option<&[u8]>)> {
+        match target.iter().position(|&b| b == b'?') {
+            Some(pos) => Ok((&target[..pos], Some(&target[pos + 1..]))),
+            None => Ok((target, None)),
+        }
     }
 
     /// Removes leading and trailing ASCII spaces from a byte slice.
@@ -170,11 +191,35 @@ mod tests {
         let request = Request::parse(raw).expect("request should parse");
 
         assert_eq!(request.method, "GET");
+        assert_eq!(request.target, "/docs");
         assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, None);
         assert_eq!(request.version, "HTTP/1.1");
         assert_eq!(request.header("host"), Some("example.com"));
         assert_eq!(request.header("user-agent"), Some("Ferrox Test"));
         assert_eq!(request.header("x-value"), Some("spaced value"));
+    }
+
+    #[test]
+    fn parses_request_line_and_query() {
+        let raw = b"GET /docs?param=value&other_param=other_value HTTP/1.1\r\nHost: example.com  \r\n\r\n";
+
+        let request = Request::parse(raw).expect("request should parse");
+
+        assert_eq!(request.target, "/docs?param=value&other_param=other_value");
+        assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, Some("param=value&other_param=other_value"));
+    }
+
+    #[test]
+    fn parses_request_line_and_query_while_splitting_once() {
+        let raw = b"GET /docs?param=value?WithQuestionMark HTTP/1.1\r\nHost: example.com  \r\n\r\n";
+
+        let request = Request::parse(raw).expect("request should parse");
+
+        assert_eq!(request.target, "/docs?param=value?WithQuestionMark");
+        assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, Some("param=value?WithQuestionMark"));
     }
 
     #[test]
@@ -191,6 +236,44 @@ mod tests {
         let err = Request::parse(b"GET / HTTP/1.1 EXTRA\r\nHost: example.com\r\n\r\n")
             .err()
             .expect("malformed request line must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_empty_target() {
+        // Double space produces an empty part where the target should be.
+        let err = Request::parse(b"GET  HTTP/1.1\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("empty target must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_empty_method() {
+        let err = Request::parse(b" / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("empty method must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_without_version() {
+        let err = Request::parse(b"GET /\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("missing version must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_trailing_space() {
+        // The trailing space yields an empty fourth part, which must not be ignored.
+        let err = Request::parse(b"GET / HTTP/1.1 \r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("trailing space must fail");
 
         assert_eq!(err.kind(), ErrorKind::InvalidData);
     }

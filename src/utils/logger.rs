@@ -52,7 +52,7 @@ pub async fn access(
         connecting_ip,
         date,
         request.method,
-        request.path,
+        request.target,
         request.version,
         response.status,
         response.content_length,

@@ -25,6 +25,6 @@ headers:
 # Optional: tls configuration
 # Request certificate using certbot for free or generate one yourself using OpenSSL (faster for testing, but not suitable for production)
 tls:
-  enabled: false
+  enabled: true
   cert_path: certs/cert.pem
   key_path: certs/key.pem

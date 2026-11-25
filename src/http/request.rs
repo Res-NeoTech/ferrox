@@ -210,6 +210,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_request_line_and_query() {
+        let raw = b"GET /docs?param=value&other_param=other_value HTTP/1.1\r\nHost: example.com  \r\n\r\n";
+
+        let request = Request::parse(raw).expect("request should parse");
+
+        assert_eq!(request.target, "/docs?param=value&other_param=other_value");
+        assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, Some("param=value&other_param=other_value"));
+    }
+
+    #[test]
+    fn parses_request_line_and_query_while_splitting_once() {
+        let raw = b"GET /docs?param=value?WithQuestionMark HTTP/1.1\r\nHost: example.com  \r\n\r\n";
+
+        let request = Request::parse(raw).expect("request should parse");
+
+        assert_eq!(request.target, "/docs?param=value?WithQuestionMark");
+        assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, Some("param=value?WithQuestionMark"));
+    }
+
+    #[test]
     fn rejects_request_without_header_terminator() {
         let err = Request::parse(b"GET / HTTP/1.1\r\nHost: example.com")
             .err()

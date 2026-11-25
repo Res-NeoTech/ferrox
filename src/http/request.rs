@@ -102,24 +102,17 @@ impl<'a> Request<'a> {
     fn split_request_line(line: &[u8]) -> Result<(&[u8], &[u8], &[u8])> {
         let mut parts = line.split(|&b| b == b' ');
 
-        let method = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No method."))?;
-        let target = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No target."))?;
-        let version = parts
-            .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No version."))?;
-
-        if parts.next().is_some() {
-            return Err(Error::new(
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(method), Some(target), Some(version), None)
+                if !method.is_empty() && !target.is_empty() && !version.is_empty() =>
+            {
+                Ok((method, target, version))
+            }
+            _ => Err(Error::new(
                 ErrorKind::InvalidData,
-                "Too many parts in request line.",
-            ));
+                "Malformed request line.",
+            )),
         }
-
-        Ok((method, target, version))
     }
 
     /// Parses a single HTTP header line into trimmed key and value slices.
@@ -243,6 +236,44 @@ mod tests {
         let err = Request::parse(b"GET / HTTP/1.1 EXTRA\r\nHost: example.com\r\n\r\n")
             .err()
             .expect("malformed request line must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_empty_target() {
+        // Double space produces an empty part where the target should be.
+        let err = Request::parse(b"GET  HTTP/1.1\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("empty target must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_empty_method() {
+        let err = Request::parse(b" / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("empty method must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_without_version() {
+        let err = Request::parse(b"GET /\r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("missing version must fail");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_request_line_with_trailing_space() {
+        // The trailing space yields an empty fourth part, which must not be ignored.
+        let err = Request::parse(b"GET / HTTP/1.1 \r\nHost: example.com\r\n\r\n")
+            .err()
+            .expect("trailing space must fail");
 
         assert_eq!(err.kind(), ErrorKind::InvalidData);
     }

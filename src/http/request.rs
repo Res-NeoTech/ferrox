@@ -151,12 +151,10 @@ impl<'a> Request<'a> {
     ///
     /// * `target` - The raw request target, e.g. `/search?q=ferrox`.
     fn explode_path(target: &[u8]) -> Result<(&[u8], Option<&[u8]>)> {
-        let parts: (&[u8], Option<&[u8]>) = match target.iter().position(|&b| b == b'?') {
-            Some(pos) => (&target[..pos], Some(&target[pos + 1..])),
-            None => (target, None),
-        };
-
-        return Ok(parts);
+        match target.iter().position(|&b| b == b'?') {
+            Some(pos) => Ok((&target[..pos], Some(&target[pos + 1..]))),
+            None => Ok((target, None)),
+        }
     }
 
     /// Removes leading and trailing ASCII spaces from a byte slice.

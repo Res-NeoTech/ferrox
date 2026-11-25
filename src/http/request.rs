@@ -32,7 +32,7 @@ impl<'a> Request<'a> {
 
         let (method, target, version) = Self::split_request_line(first_line)?;
 
-        let (path, params) = Self::explode_path(&target)?;
+        let (path, query) = Self::explode_path(target)?;
 
         let mut headers: HashMap<&'a str, &'a str> = HashMap::new();
 
@@ -59,8 +59,17 @@ impl<'a> Request<'a> {
         Ok(Self {
             method: std::str::from_utf8(method)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
+            target: std::str::from_utf8(target)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             path: std::str::from_utf8(path)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
+            query: match query {
+                Some(query) => Some(
+                    std::str::from_utf8(query)
+                        .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
+                ),
+                None => None,
+            },
             version: std::str::from_utf8(version)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             headers,
@@ -194,7 +203,9 @@ mod tests {
         let request = Request::parse(raw).expect("request should parse");
 
         assert_eq!(request.method, "GET");
+        assert_eq!(request.target, "/docs");
         assert_eq!(request.path, "/docs");
+        assert_eq!(request.query, None);
         assert_eq!(request.version, "HTTP/1.1");
         assert_eq!(request.header("host"), Some("example.com"));
         assert_eq!(request.header("user-agent"), Some("Ferrox Test"));

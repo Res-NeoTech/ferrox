@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use html_escape::encode_safe;
 use mime_guess;
 use tokio::fs::File;
+use urlencoding::decode;
 
 use crate::{
     config::RouterPreset,
@@ -14,14 +15,25 @@ use crate::{
 ///
 /// # Arguments
 ///
-/// * `file_path` - The request path extracted from the HTTP request line.
+/// * `raw_path` - The request path as sent by the client (still percent-encoded, no query).
+/// * `query` - The query string, if any. Preserved in directory redirects.
 /// * `serving_dir` - The root directory from which static files are served.
+/// * `logic` - Router preset (static files or SPA fallback).
+/// * `index` - Whether directory listing is enabled.
 pub async fn serve_file(
-    file_path: &str,
+    raw_path: &str,
+    query: Option<&str>,
     serving_dir: &str,
     logic: &RouterPreset,
     index: &bool,
 ) -> Result<Response, std::io::Error> {
+    // Decoded form is only used to find the file on disk; redirects reuse `raw_path`.
+    let file_path = match decode(raw_path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Response::error("400", "Bad Request")),
+    };
+    let file_path: &str = &file_path;
+
     let base = tokio::fs::canonicalize(&serving_dir).await?;
     let requested_path = base.join(file_path.trim_start_matches('/'));
 
@@ -40,10 +52,11 @@ pub async fn serve_file(
     if canonical.is_dir() {
         if logic == &RouterPreset::Static {
             if !file_path.ends_with('/') {
-                return Ok(Response::redirect(
-                    "301 Moved Permanently",
-                    &format!("{file_path}/"),
-                ));
+                let location = match query {
+                    Some(q) => format!("{raw_path}/?{q}"),
+                    None => format!("{raw_path}/"),
+                };
+                return Ok(Response::redirect("301 Moved Permanently", &location));
             }
 
             let index_html = canonical.join("index.html");
@@ -190,6 +203,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -208,6 +222,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn directory_redirect_preserves_query() {
+        // ARRANGE
+        let (root, serve_dir) = create_serving_layout();
+        fs::create_dir_all(Path::new(&serve_dir).join("docs")).expect("docs dir should be created");
+
+        // ACT
+        let response = serve_file(
+            "/docs",
+            Some("page=2&sort=asc"),
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false,
+        )
+        .await
+        .expect("directory request should succeed");
+
+        // ASSERT
+        assert_eq!(response.status, "301 Moved Permanently");
+        assert_eq!(
+            response.headers,
+            vec![("Location".to_string(), "/docs/?page=2&sort=asc".to_string())]
+        );
+
+        cleanup(&root);
+    }
+
+    #[tokio::test]
+    async fn directory_redirect_keeps_path_percent_encoded() {
+        // ARRANGE
+        let (root, serve_dir) = create_serving_layout();
+        fs::create_dir_all(Path::new(&serve_dir).join("my docs"))
+            .expect("dir with space should be created");
+
+        // ACT
+        let response = serve_file(
+            "/my%20docs",
+            None,
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false,
+        )
+        .await
+        .expect("directory request should succeed");
+
+        // ASSERT
+        assert_eq!(response.status, "301 Moved Permanently");
+        assert_eq!(
+            response.headers,
+            vec![("Location".to_string(), "/my%20docs/".to_string())]
+        );
+
+        cleanup(&root);
+    }
+
+    #[tokio::test]
+    async fn invalid_percent_encoding_returns_bad_request() {
+        // ARRANGE
+        let (root, serve_dir) = create_serving_layout();
+
+        // ACT: %FF decodes to a byte that isn't valid UTF-8.
+        let response = serve_file(
+            "/%FF",
+            None,
+            &serve_dir,
+            &crate::config::RouterPreset::Static,
+            &false,
+        )
+        .await
+        .expect("invalid encoding should return a response");
+
+        // ASSERT
+        assert_eq!(response.status, "400 Bad Request");
+
+        cleanup(&root);
+    }
+
+    #[tokio::test]
     async fn blocks_path_traversal_outside_serving_root() {
         // ARRANGE
         let (root, serve_dir) = create_serving_layout();
@@ -216,6 +307,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/../secret.txt",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -243,6 +335,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false,
@@ -274,6 +367,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &true,
@@ -305,6 +399,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Static,
             &false, // Disable indexing
@@ -333,6 +428,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/getting-started",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -360,6 +456,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/getting-started",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -392,6 +489,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,
@@ -425,6 +523,7 @@ mod tests {
         // ACT
         let response = serve_file(
             "/docs/doc.js",
+            None,
             &serve_dir,
             &crate::config::RouterPreset::Spa,
             &false,

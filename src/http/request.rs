@@ -63,13 +63,10 @@ impl<'a> Request<'a> {
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             path: std::str::from_utf8(path)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
-            query: match query {
-                Some(query) => Some(
-                    std::str::from_utf8(query)
-                        .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
-                ),
-                None => None,
-            },
+            query: query
+                .map(std::str::from_utf8)
+                .transpose()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             version: std::str::from_utf8(version)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid UTF-8."))?,
             headers,

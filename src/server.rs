@@ -145,7 +145,7 @@ pub async fn serve_http_redirect(config: Arc<Config>) {
 
                 let redirect_response = Response::redirect(
                     "301 Moved Permanently",
-                    &format!("https://{}{}{}", clean_host, https_port_str, request.path),
+                    &format!("https://{}{}{}", clean_host, https_port_str, request.target),
                 );
 
                 match redirect_response

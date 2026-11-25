@@ -4,7 +4,9 @@ use std::io::{Error, ErrorKind, Result};
 /// Represents a parsed HTTP request line together with its header map.
 pub struct Request<'a> {
     pub method: &'a str,
+    pub target: &'a str,
     pub path: &'a str,
+    pub query: Option<&'a str>,
     pub version: &'a str,
     headers: HashMap<&'a str, &'a str>,
 }
@@ -28,7 +30,9 @@ impl<'a> Request<'a> {
 
         let first_line = Self::strip_cr(first_line);
 
-        let (method, path, version) = Self::split_request_line(first_line)?;
+        let (method, target, version) = Self::split_request_line(first_line)?;
+
+        let (path, params) = Self::explode_path(&target)?;
 
         let mut headers: HashMap<&'a str, &'a str> = HashMap::new();
 
@@ -84,7 +88,7 @@ impl<'a> Request<'a> {
         buf.windows(4).position(|w| w == b"\r\n\r\n")
     }
 
-    /// Splits the HTTP request line into method, path, and version slices.
+    /// Splits the HTTP request line into method, target(full path with params), and version slices.
     ///
     /// # Arguments
     ///
@@ -95,9 +99,9 @@ impl<'a> Request<'a> {
         let method = parts
             .next()
             .ok_or(Error::new(ErrorKind::InvalidData, "No method."))?;
-        let path = parts
+        let target = parts
             .next()
-            .ok_or(Error::new(ErrorKind::InvalidData, "No path."))?;
+            .ok_or(Error::new(ErrorKind::InvalidData, "No target."))?;
         let version = parts
             .next()
             .ok_or(Error::new(ErrorKind::InvalidData, "No version."))?;
@@ -109,7 +113,7 @@ impl<'a> Request<'a> {
             ));
         }
 
-        Ok((method, path, version))
+        Ok((method, target, version))
     }
 
     /// Parses a single HTTP header line into trimmed key and value slices.
@@ -127,6 +131,26 @@ impl<'a> Request<'a> {
         let value = &line[pos + 1..];
 
         Ok((Self::trim(key), Self::trim(value)))
+    }
+
+    /// Splits a request target into its path and optional query string.
+    ///
+    /// Only the first `?` separates the two, since `?` is allowed inside the query.
+    /// Returns `None` when the target has no `?`, and `Some(b"")` when it ends with one,
+    /// so `/page` and `/page?` stay distinguishable.
+    ///
+    /// Must run before URL decoding: an encoded `%3F` belongs to the path.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - The raw request target, e.g. `/search?q=ferrox`.
+    fn explode_path(target: &[u8]) -> Result<(&[u8], Option<&[u8]>)> {
+        let parts: (&[u8], Option<&[u8]>) = match target.iter().position(|&b| b == b'?') {
+            Some(pos) => (&target[..pos], Some(&target[pos + 1..])),
+            None => (target, None),
+        };
+
+        return Ok(parts);
     }
 
     /// Removes leading and trailing ASCII spaces from a byte slice.
